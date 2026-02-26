@@ -1378,7 +1378,39 @@ return pending.sort((a,b) => a.date.localeCompare(b.date));
 useEffect(() => {
 if(form.start && form.end) { const diff = (new Date(form.end)-new Date(form.start))/36e5; setHours(Math.max(0, Math.round(diff*2)/2)); }
 }, [form.start, form.end]);
-const handleTaskSubmit = async (taskData, taskId) => { setSubmittingTaskId(taskId); try { const now = new Date(); await crud.createLeave({ ...taskData, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, status: 'pending', timestamp: now, submittedAt: now });
+
+  // 職代防呆：職代於同時段已安排出差/請假則禁止選擇
+  const hasDeputyConflict = (deputyId, start, end) => {
+    if(!deputyId || !start || !end) return false;
+    const s0 = new Date(start);
+    const e0 = new Date(end);
+    const overlaps = (s1,e1)=> (s0 <= e1 && e0 >= s1);
+    // leaves：比對職代本人是否已有請假/出差（排除退回/撤簽）
+    const leaveHit = (leaves||[]).some(l=>{
+      if(!l || !l.start || !l.end) return false;
+      if(l.status==='rejected' || l.status==='withdrawn') return false;
+      const rid = l.requesterId || l.requesterDocId || l.requesterUid || '';
+      if(String(rid) !== String(deputyId)) return false;
+      return overlaps(new Date(l.start), new Date(l.end));
+    });
+    if(leaveHit) return true;
+    // calendar_events：比對職代行程（若你的 event 有 personId）
+    const calHit = (calendarEvents||[]).some(ev=>{
+      if(!ev) return false;
+      const pid = ev.personId || ev.person || ev.personUid || ev.personDocId || '';
+      if(String(pid) !== String(deputyId)) return false;
+      const es = ev.start || ev.startDateTime || ev.date || ev.startTime;
+      const ee = ev.end || ev.endDateTime || ev.date || ev.endTime;
+      if(!es) return false;
+      const s1 = new Date(es);
+      const e1 = ee ? new Date(ee) : s1;
+      return overlaps(s1,e1);
+    });
+    return calHit;
+  };
+
+const handleTaskSubmit = async (taskData, taskId) => { setSubmittingTaskId(taskId); try { const now = new Date(); if(hasDeputyConflict(taskData.deputyId, taskData.start, taskData.end)){ alert('【職代防呆】所選職代於該時段已安排出差/請假，請更換人員。'); return; }
+await crud.createLeave({ ...taskData, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, status: 'pending', timestamp: now, submittedAt: now });
 // --- Mail notify: submit (requester + deputy) ---
 try {
   const requesterEmail = (user.email||'').toLowerCase();
@@ -1442,6 +1474,7 @@ let usedCompensatory = 0;
 leaves.forEach(l => { if ((l.requesterId === user.uid || l.requesterId === user.docId) && l.status === 'approved' && l.type === '補休') { usedCompensatory += Number(l.hours); } });
 const balance = totalOvertime - usedCompensatory;
 if (finalHours > balance) { alert(`補休時數不足！\n目前可用餘額: ${balance} 小時\n您申請時數: ${finalHours} 小時`); return; }}
+if(hasDeputyConflict(form.deputyId, finalStart, finalEnd)){ alert('【職代防呆】所選職代於該時段已安排出差/請假，請更換人員。'); return; }
 setIsSubmitting(true);
 try {
 await crud.createLeave({ ...form, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, start: finalStart, end: finalEnd, hours: finalHours, status: 'pending', timestamp: new Date(), submittedAt: new Date() });
@@ -1507,6 +1540,8 @@ return (<div className="max-w-3xl mx-auto space-y-8">{pendingExternalTasks.lengt
 <div><label className="text-sm font-bold text-gray-700 block mb-1">職務代理人</label><select className="w-full border p-2.5 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 outline-none transition" required value={form.deputyId} onChange={e=>setForm({ ...form, deputyId:e.target.value})}><option value="">請選擇</option>{deputies.map(u=><option key={u.docId} value={u.docId}>{u.name}</option>)}</select></div><div><label className="text-sm font-bold text-gray-700 block mb-1">事由</label><textarea className="w-full border p-2.5 rounded-lg h-24 bg-gray-50 focus:bg-white focus:ring-2 outline-none transition resize-none" required placeholder="請簡述請假原因..." value={form.reason} onChange={e=>setForm({ ...form, reason:e.target.value})}/></div><button disabled={isSubmitting} className={`w-full bg-slate-800 text-white py-3.5 rounded-lg font-bold transition shadow-md flex justify-center items-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-900 hover:shadow-lg'}`}>{isSubmitting ? <><Loader2 className="animate-spin" size={20}/> 假單傳送中...</> : '確認送出假單'}</button></form></div></div>);}
 function ApprovalView({ leaves, currentUser, crud, users }) {
 const [processingId, setProcessingId] = useState(null);
+const [selectedLeaderIds, setSelectedLeaderIds] = useState([]);
+
 const [showAllLeaves, setShowAllLeaves] = useState(false);
 const [allFilterUser, setAllFilterUser] = useState('all');
 const [allFilterStartMonth, setAllFilterStartMonth] = useState('');
@@ -1533,6 +1568,74 @@ link.click();
 };
 const pendingMyDeputy = leaves.filter(l => (l.deputyId === currentUser.uid || l.deputyId === (currentUser.email || '').toLowerCase() || l.deputyId === currentUser.docId) && l.status === 'pending');
 const pendingLeader = (currentUser.role === 'leader' || currentUser.role === 'admin') ? leaves.filter(l => l.status === 'deputy_signed') : [];
+// --- Bulk approval selection (leader) ---
+useEffect(() => {
+  // keep selections that still exist
+  setSelectedLeaderIds(prev => prev.filter(id => pendingLeader.some(l => l.id === id)));
+}, [pendingLeader]);
+
+const toggleLeaderSelect = (id) => {
+  setSelectedLeaderIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+};
+const toggleLeaderSelectAll = () => {
+  if (pendingLeader.length === 0) return;
+  setSelectedLeaderIds(prev => (prev.length === pendingLeader.length) ? [] : pendingLeader.map(l => l.id));
+};
+
+const handleLeaderBulkApprove = async () => {
+  if (selectedLeaderIds.length === 0) { alert("請先勾選要核准的項目"); return; }
+  if (processingId) return;
+  if (!confirm(`確定要一次核准 ${selectedLeaderIds.length} 筆差單嗎？`)) return;
+
+  setProcessingId('bulk_leader');
+  try {
+    for (const id of selectedLeaderIds) {
+      const leave = pendingLeader.find(l => l.id === id);
+      if (!leave) continue;
+
+      const approvedAt = new Date();
+      await crud.updateLeave(leave.id, {
+        status: 'approved',
+        approverId: currentUser.uid,
+        approvedAt,
+        approvedByName: currentUser.name || currentUser.displayName || ''
+      });
+
+      // Mail notify: approved -> requester
+      try {
+        const requesterEmail = (leave.requesterEmail || '').toLowerCase();
+        if (requesterEmail) {
+          await sendMail({
+            targetEmail: requesterEmail,
+            subject: "【差勤排班】你的差單已核准",
+            body: `你好 ${leave.requesterName||''}：
+
+你的差單已核准。
+假別：${leave.type||''}
+假別時數：${(leave.hours!=null && leave.hours!=='') ? (leave.hours + ' 小時') : '—'}
+起訖：${fmtISO(leave.start)} ～ ${fmtISO(leave.end)}
+出差事由：${leave.reason||leave.note||''}
+
+時間序：
+1. 送出申請時間：${fmtDT(leave.submittedAt||leave.timestamp)}
+2. 職代人員：${leave.deputySignedByName || '—'}｜同意時間：${fmtDT(leave.deputySignedAt)}
+3. 組長：${(currentUser.name||'—')}｜同意時間：${fmtDT(approvedAt)}
+
+（系統自動通知）`
+          });
+        }
+      } catch (mailErr) { console.warn("mail notify (approved bulk) failed:", mailErr); }
+    }
+    setSelectedLeaderIds([]);
+    alert("批量核准完成！");
+  } catch (e) {
+    console.warn(e);
+    alert("批量核准失敗");
+  } finally {
+    setProcessingId(null);
+  }
+};
+
 const handleDeputyAgree = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'deputy_signed', deputySignedAt: new Date(), deputySignedByName: currentUser.name || currentUser.displayName || '' });
 // --- Mail notify: deputy reviewed -> requester ---
 try {
@@ -1648,6 +1751,26 @@ const mk=l=> (l.start||'').slice(0,7);
 const byMonth=l=>{const k=mk(l); if(!k) return false; if(allFilterStartMonth && k<allFilterStartMonth) return false; if(allFilterEndMonth && k>allFilterEndMonth) return false; return true;};
 return [...leaves].filter(l=>byUser(l)&&byMonth(l)&&byType(l)&&byStatus(l)).sort((a,b)=>new Date(b.timestamp||b.start)-new Date(a.timestamp||a.start));
 },[leaves,users,allFilterUser,allFilterStartMonth,allFilterEndMonth,allFilterType,allFilterStatus]);
+
+const fmtDateRange=(start,end)=>{
+  const s1=(start||'').split('T'); const e1=(end||'').split('T');
+  const d1=s1[0]||''; const d2=e1[0]||'';
+  if(!d1 && !d2) return '-';
+  return d1===d2? d1 : `${d1} ~ ${d2}`;
+};
+const fmtTimeRange=(start,end)=>{
+  const s1=(start||'').split('T'); const e1=(end||'').split('T');
+  const t1=(s1[1]||'').slice(0,5); const t2=(e1[1]||'').slice(0,5);
+  if(!t1 && !t2) return '-';
+  return `${t1||''} ~ ${t2||''}`.trim();
+};
+const fmtDaysHours=(hours)=>{
+  const h = Number(hours||0);
+  const d = Math.round((h/8)*10)/10;
+  if(!h) return '-';
+  return `${d}天 / ${h}h`;
+};
+const fmtText=(v)=> (v==null? '' : String(v));
 const StatusStep = ({ status }) => {
 const step1 = status !== 'pending' ? 'text-green-600 font-bold' : 'text-gray-400';
 const step2 = status === 'approved' ? 'text-green-600 font-bold' : (status === 'deputy_signed' ? 'text-blue-600 animate-pulse font-bold' : 'text-gray-400');
@@ -1664,8 +1787,8 @@ return (
 )}
 <div className="max-w-6xl mx-auto space-y-8">
 <div className="flex justify-between items-center"><h2 className="text-xl font-bold flex items-center gap-2"><CheckCircle/> 差單審核</h2></div>
-<div className="bg-white rounded shadow overflow-hidden border-t-4 border-blue-500"><div className="bg-blue-50 px-4 py-3 border-b border-blue-100 font-bold text-blue-800 flex items-center gap-2"><User size={18}/> 第一關：待我簽核 (我是職代)</div>{pendingMyDeputy.length===0 ? <div className="p-8 text-center text-gray-400 text-sm">無待辦事項，您目前沒有需要代理的案件。</div> : <table className="w-full text-sm text-left"><thead className="bg-gray-50 border-b text-gray-500"><tr><th className="p-3">申請人</th><th className="p-3">項目</th><th className="p-3">進度狀態</th><th className="p-3">操作</th></tr></thead><tbody>{pendingMyDeputy.map(l => (<tr key={l.id} className="border-b last:border-0 hover:bg-gray-50"><td className="p-3 font-bold text-gray-700">{l.requesterName}</td><td className="p-3"><span className="font-bold text-blue-600">{l.type}</span><div className="text-xs text-gray-500 mt-1">{l.start.replace('T',' ')} <br/>~ {l.end.replace('T',' ')}</div></td><td className="p-3"><StatusStep status={l.status}/></td><td className="p-3 flex gap-2"><button onClick={()=>handleDeputyAgree(l)} disabled={processingId === l.id} className={`text-white font-bold text-xs bg-blue-500 px-3 py-1.5 rounded shadow-sm flex items-center gap-1 ${processingId === l.id ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'}`}>{processingId === l.id ? <Loader2 className="animate-spin" size={12}/> : <CheckCircle size={12}/>} 簽核同意</button><button onClick={()=>handleReject(l)} disabled={processingId === l.id} className={`text-red-600 font-bold text-xs bg-red-50 px-3 py-1.5 rounded ${processingId === l.id ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-100'}`}>{processingId === l.id ? '...' : '退回'}</button></td></tr>))}</tbody></table>}</div>
-{(currentUser.role === 'leader' || currentUser.role === 'admin') && <div className="bg-white rounded shadow overflow-hidden border-t-4 border-orange-500"><div className="bg-orange-50 px-4 py-3 border-b border-orange-100 font-bold text-orange-800 flex items-center gap-2"><CheckCircle size={18}/> 第二關：待最終核准 (組長權限)</div>{pendingLeader.length===0 ? <div className="p-8 text-center text-gray-400 text-sm">無待審核項目</div> : <table className="w-full text-sm text-left"><thead className="bg-gray-50 border-b text-gray-500"><tr><th className="p-3">申請人</th><th className="p-3">項目</th><th className="p-3">進度狀態</th><th className="p-3">操作</th></tr></thead><tbody>{pendingLeader.map(l => (<tr key={l.id} className="border-b last:border-0 hover:bg-gray-50"><td className="p-3 font-bold text-gray-700">{l.requesterName}</td><td className="p-3"><span className="font-bold text-gray-800">{l.type}</span><div className="text-xs text-gray-500 mt-1">{l.start.replace('T',' ')} <br/>~ {l.end.replace('T',' ')}</div></td><td className="p-3"><StatusStep status={l.status}/></td><td className="p-3 flex gap-2"><button onClick={()=>handleLeaderApprove(l)} disabled={processingId === l.id} className={`text-white font-bold text-xs bg-green-600 px-3 py-1.5 rounded shadow-sm flex items-center gap-1 ${processingId === l.id ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'}`}>{processingId === l.id ? <Loader2 className="animate-spin" size={12}/> : <CheckCircle size={12}/>} 最終核准</button><button onClick={()=>handleReject(l)} disabled={processingId === l.id} className={`text-red-600 font-bold text-xs bg-red-50 px-3 py-1.5 rounded ${processingId === l.id ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-100'}`}>{processingId === l.id ? '...' : '駁回'}</button></td></tr>))}</tbody></table>}</div>}
+<div className="bg-white rounded shadow overflow-hidden border-t-4 border-blue-500"><div className="bg-blue-50 px-4 py-3 border-b border-blue-100 font-bold text-blue-800 flex items-center gap-2"><User size={18}/> 第一關：待我簽核 (我是職代)</div>{pendingMyDeputy.length===0 ? <div className="p-8 text-center text-gray-400 text-sm">無待辦事項，您目前沒有需要代理的案件。</div> : <table className="w-full text-sm text-left"><thead className="bg-gray-50 border-b text-gray-500"><tr><th className="p-3">申請者</th><th className="p-3">假別</th><th className="p-3">事由</th><th className="p-3">備註</th><th className="p-3">日期</th><th className="p-3">時間</th><th className="p-3">申請天/時數</th><th className="p-3">進度狀態</th><th className="p-3">操作</th></tr></thead><tbody>{pendingMyDeputy.map(l => (<tr key={l.id} className="border-b last:border-0 hover:bg-gray-50"><td className="p-3 font-bold text-gray-700">{l.requesterName}</td><td className="p-3 font-bold text-blue-600">{l.type}</td><td className="p-3">{fmtText(l.reason||l.tripReason||"")}</td><td className="p-3 text-gray-600">{fmtText(l.note||"")}</td><td className="p-3">{fmtDateRange(l.start,l.end)}</td><td className="p-3 text-xs text-gray-500">{fmtTimeRange(l.start,l.end)}</td><td className="p-3 font-medium">{fmtDaysHours(l.hours)}</td><td className="p-3"><StatusStep status={l.status}/></td><td className="p-3 flex gap-2"><button onClick={()=>handleDeputyAgree(l)} disabled={processingId === l.id} className={`text-white font-bold text-xs bg-blue-500 px-3 py-1.5 rounded shadow-sm flex items-center gap-1 ${processingId === l.id ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'}`}>{processingId === l.id ? <Loader2 className="animate-spin" size={12}/> : <CheckCircle size={12}/>} 簽核同意</button><button onClick={()=>handleReject(l)} disabled={processingId === l.id} className={`text-red-600 font-bold text-xs bg-red-50 px-3 py-1.5 rounded ${processingId === l.id ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-100'}`}>{processingId === l.id ? '...' : '退回'}</button></td></tr>))}</tbody></table>}</div>
+{(currentUser.role === 'leader' || currentUser.role === 'admin') && <div className="bg-white rounded shadow overflow-hidden border-t-4 border-orange-500"><div className="bg-orange-50 px-4 py-3 border-b border-orange-100 font-bold text-orange-800 flex items-center gap-2"><CheckCircle size={18}/> 第二關：待最終核准 (組長權限)</div>{pendingLeader.length===0 ? <div className="p-8 text-center text-gray-400 text-sm">無待審核項目</div> : <><div className="p-3 flex items-center justify-between gap-3 bg-white border-b"><label className="inline-flex items-center gap-2 text-sm text-gray-700 select-none"><input type="checkbox" className="h-4 w-4" checked={pendingLeader.length>0 && selectedLeaderIds.length===pendingLeader.length} onChange={toggleLeaderSelectAll}/>全選</label><div className="flex items-center gap-2"><div className="text-xs text-gray-500">已選 {selectedLeaderIds.length} 筆</div><button onClick={handleLeaderBulkApprove} disabled={selectedLeaderIds.length===0 || !!processingId} className={`px-3 py-2 rounded text-white text-sm ${selectedLeaderIds.length===0 || processingId ? "bg-gray-400 cursor-not-allowed" : "bg-orange-600 hover:bg-orange-700"}`}>批量核准</button></div></div><table className="w-full text-sm text-left"><thead className="bg-gray-50 border-b text-gray-500"><tr><th className="p-3 w-10"></th><th className="p-3">申請者</th><th className="p-3">假別</th><th className="p-3">事由</th><th className="p-3">備註</th><th className="p-3">日期</th><th className="p-3">時間</th><th className="p-3">申請天/時數</th><th className="p-3">進度狀態</th><th className="p-3">操作</th></tr></thead><tbody>{pendingLeader.map(l => (<tr key={l.id} className="border-b last:border-0 hover:bg-gray-50"><td className="p-3"><input type="checkbox" className="h-4 w-4" checked={selectedLeaderIds.includes(l.id)} onChange={()=>toggleLeaderSelect(l.id)} /></td><td className="p-3 font-bold text-gray-700">{l.requesterName}</td><td className="p-3 font-bold text-gray-800">{l.type}</td><td className="p-3">{fmtText(l.reason||l.tripReason||"")}</td><td className="p-3 text-gray-600">{fmtText(l.note||"")}</td><td className="p-3">{fmtDateRange(l.start,l.end)}</td><td className="p-3 text-xs text-gray-500">{fmtTimeRange(l.start,l.end)}</td><td className="p-3 font-medium">{fmtDaysHours(l.hours)}</td><td className="p-3"><StatusStep status={l.status}/></td><td className="p-3 flex gap-2"><button onClick={()=>handleLeaderApprove(l)} disabled={processingId === l.id} className={`text-white font-bold text-xs bg-green-600 px-3 py-1.5 rounded shadow-sm flex items-center gap-1 ${processingId === l.id ? 'opacity-50 cursor-not-allowed' : 'hover:bg-green-700'}`}>{processingId === l.id ? <Loader2 className="animate-spin" size={12}/> : <CheckCircle size={12}/>} 最終核准</button><button onClick={()=>handleReject(l)} disabled={processingId === l.id} className={`text-red-600 font-bold text-xs bg-red-50 px-3 py-1.5 rounded ${processingId === l.id ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-100'}`}>{processingId === l.id ? '...' : '駁回'}</button></td></tr>))}</tbody></table></>}</div>}
 <div className="bg-white rounded shadow overflow-hidden border border-gray-200 mt-8">
 <div className="flex flex-col md:flex-row justify-between items-center bg-gray-50 border-b">
 <button onClick={() => setShowAllLeaves(!showAllLeaves)} className="flex-1 px-4 py-3 hover:bg-gray-100 flex justify-between items-center transition font-bold text-gray-700 text-left">
