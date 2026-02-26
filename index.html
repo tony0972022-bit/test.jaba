@@ -990,7 +990,7 @@ className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${activ
 {users.map(u => {
 const active = selUsers.includes(u.uid || u.docId);
 return (
-<div key={u.docId} onClick={()=>setSelUsers(p=>active?p.filter(x!==(u.uid || u.docId)):[...p,(u.uid || u.docId)])} className={`flex flex-col items-center p-2 rounded-lg border cursor-pointer transition select-none ${active?'bg-blue-50 border-blue-500 ring-1 ring-blue-500':'bg-white hover:bg-gray-50 border-gray-200'}`}>
+<div key={u.docId} onClick={()=>setSelUsers(p=>active?p.filter(x => x !== (u.uid || u.docId)):[...p,(u.uid || u.docId)])} className={`flex flex-col items-center p-2 rounded-lg border cursor-pointer transition select-none ${active?'bg-blue-50 border-blue-500 ring-1 ring-blue-500':'bg-white hover:bg-gray-50 border-gray-200'}`}>
 <UserAvatar user={u} size="w-8 h-8" textSize="text-xs" />
 <span className="text-[10px] mt-1 text-gray-700 font-medium">{u.name}</span></div>);
 })}</div></div></div>
@@ -1332,7 +1332,45 @@ return pending.sort((a,b) => a.date.localeCompare(b.date));
 useEffect(() => {
 if(form.start && form.end) { const diff = (new Date(form.end)-new Date(form.start))/36e5; setHours(Math.max(0, Math.round(diff*2)/2)); }
 }, [form.start, form.end]);
-const handleTaskSubmit = async (taskData, taskId) => { setSubmittingTaskId(taskId); try { await crud.createLeave({ ...taskData, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, status: 'pending', timestamp: new Date(), submittedAt: new Date() }); alert("差單已送出，已顯示在日曆上！"); } catch (e) { alert("送出失敗"); } finally { setSubmittingTaskId(null); } }
+const handleTaskSubmit = async (taskData, taskId) => { setSubmittingTaskId(taskId); try { await crud.createLeave({ ...taskData, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, status: 'pending', timestamp: new Date(), submittedAt: new Date() });
+// --- Mail notify: submit (requester + deputy) ---
+try {
+  const requesterEmail = (user.email||'').toLowerCase();
+  const deputyId = (taskData.deputyId||'');
+  const deputyUser = deputyId ? users.find(u => (u.uid||u.docId||'')===deputyId || (u.docId||'')===deputyId || ((u.email||'').toLowerCase()===String(deputyId).toLowerCase())) : null;
+  const deputyEmail = deputyUser ? (deputyUser.email||'').toLowerCase() : (String(deputyId).includes('@') ? String(deputyId).toLowerCase() : '');
+  // requester
+  if (requesterEmail) {
+    await sendMail({
+      targetEmail: requesterEmail,
+      subject: "【差勤排班】已送出申請，等待審核",
+      body: `你好 ${user.name}：
+
+你的申請已送出，等待職代審查。
+假別：${taskData.type||''}
+日期：${(taskData.start||'').split('T')[0]||''}
+
+（系統自動通知）`
+    });
+  }
+  // deputy
+  if (deputyEmail) {
+    await sendMail({
+      targetEmail: deputyEmail,
+      subject: "【差勤排班】有一筆新待審差單",
+      body: `你好：
+
+有一筆新的差單待審。
+申請人：${user.name}
+假別：${taskData.type||''}
+日期：${(taskData.start||'').split('T')[0]||''}
+
+請至系統「差單審核」查看。
+（系統自動通知）`
+    });
+  }
+} catch (mailErr) { console.warn("mail notify (submit/task) failed:", mailErr); }
+ alert("差單已送出，已顯示在日曆上！"); } catch (e) { alert("送出失敗"); } finally { setSubmittingTaskId(null); } }
 const handleManualSubmit = async (e) => {
 e.preventDefault();
 let finalStart = form.start;
@@ -1366,6 +1404,44 @@ if (finalHours > balance) { alert(`補休時數不足！\n目前可用餘額: ${
 setIsSubmitting(true);
 try {
 await crud.createLeave({ ...form, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, start: finalStart, end: finalEnd, hours: finalHours, status: 'pending', timestamp: new Date(), submittedAt: new Date() });
+// --- Mail notify: submit (requester + deputy) ---
+try {
+  const requesterEmail = (user.email||'').toLowerCase();
+  const deputyId = (form.deputyId||'');
+  const deputyUser = deputyId ? users.find(u => (u.uid||u.docId||'')===deputyId || (u.docId||'')===deputyId || ((u.email||'').toLowerCase()===String(deputyId).toLowerCase())) : null;
+  const deputyEmail = deputyUser ? (deputyUser.email||'').toLowerCase() : (String(deputyId).includes('@') ? String(deputyId).toLowerCase() : '');
+  // requester
+  if (requesterEmail) {
+    await sendMail({
+      targetEmail: requesterEmail,
+      subject: "【差勤排班】已送出申請，等待審核",
+      body: `你好 ${user.name}：
+
+你的申請已送出，等待職代審查。
+假別：${form.type||''}
+起訖：${(finalStart||'')} ～ ${(finalEnd||'')}
+
+（系統自動通知）`
+    });
+  }
+  // deputy
+  if (deputyEmail) {
+    await sendMail({
+      targetEmail: deputyEmail,
+      subject: "【差勤排班】有一筆新待審差單",
+      body: `你好：
+
+有一筆新的差單待審。
+申請人：${user.name}
+假別：${form.type||''}
+起訖：${(finalStart||'')} ～ ${(finalEnd||'')}
+
+請至系統「差單審核」查看。
+（系統自動通知）`
+    });
+  }
+} catch (mailErr) { console.warn("mail notify (submit/manual) failed:", mailErr); }
+
 alert("請假單已送出，已同步顯示在日曆上！");
 setForm({ type: defaultPersonalType, start:'', end:'', reason:'', deputyId:'' });
 setSlotDate(getLocalDateString());
@@ -1427,9 +1503,64 @@ link.click();
 };
 const pendingMyDeputy = leaves.filter(l => (l.deputyId === currentUser.uid || l.deputyId === (currentUser.email || '').toLowerCase() || l.deputyId === currentUser.docId) && l.status === 'pending');
 const pendingLeader = (currentUser.role === 'leader' || currentUser.role === 'admin') ? leaves.filter(l => l.status === 'deputy_signed') : [];
-const handleDeputyAgree = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'deputy_signed' }); } catch(e) { alert("操作失敗"); } finally { setProcessingId(null); } };
-const handleLeaderApprove = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'approved', approverId: currentUser.uid }); } catch(e) { alert("操作失敗"); } finally { setProcessingId(null); } };
-const handleReject = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'rejected', approverId: currentUser.uid }); } catch(e) { alert("操作失敗"); } finally { setProcessingId(null); } }
+const handleDeputyAgree = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'deputy_signed' });
+// --- Mail notify: deputy reviewed -> requester ---
+try {
+  const requesterEmail = (leave.requesterEmail||'').toLowerCase();
+  if (requesterEmail) {
+    await sendMail({
+      targetEmail: requesterEmail,
+      subject: "【差勤排班】你的差單已完成職代審查",
+      body: `你好 ${leave.requesterName||''}：
+
+你的差單已完成職代審查，等待主管核准。
+假別：${leave.type||''}
+起訖：${leave.start||''} ～ ${leave.end||''}
+
+（系統自動通知）`
+    });
+  }
+} catch (mailErr) { console.warn("mail notify (deputy_signed) failed:", mailErr); }
+ } catch(e) { alert("操作失敗"); } finally { setProcessingId(null); } };
+const handleLeaderApprove = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'approved', approverId: currentUser.uid });
+// --- Mail notify: approved -> requester ---
+try {
+  const requesterEmail = (leave.requesterEmail||'').toLowerCase();
+  if (requesterEmail) {
+    await sendMail({
+      targetEmail: requesterEmail,
+      subject: "【差勤排班】你的差單已核准",
+      body: `你好 ${leave.requesterName||''}：
+
+你的差單已核准。
+假別：${leave.type||''}
+起訖：${leave.start||''} ～ ${leave.end||''}
+
+（系統自動通知）`
+    });
+  }
+} catch (mailErr) { console.warn("mail notify (approved) failed:", mailErr); }
+ } catch(e) { alert("操作失敗"); } finally { setProcessingId(null); } };
+const handleReject = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'rejected', approverId: currentUser.uid });
+// --- Mail notify: rejected -> requester ---
+try {
+  const requesterEmail = (leave.requesterEmail||'').toLowerCase();
+  if (requesterEmail) {
+    await sendMail({
+      targetEmail: requesterEmail,
+      subject: "【差勤排班】你的差單未通過（退件）",
+      body: `你好 ${leave.requesterName||''}：
+
+你的差單已被退件。
+假別：${leave.type||''}
+起訖：${leave.start||''} ～ ${leave.end||''}
+
+如需調整內容，請重新送出或洽主管。
+（系統自動通知）`
+    });
+  }
+} catch (mailErr) { console.warn("mail notify (rejected) failed:", mailErr); }
+ } catch(e) { alert("操作失敗"); } finally { setProcessingId(null); } }
 // 一般人員撤簽 (針對已核准假單)
 const confirmRecall = async () => {
 if(!recallModal.reason.trim()) { alert("請填寫撤簽原因！讓主管了解狀況。"); return; }
