@@ -38,7 +38,7 @@ Calendar, User, Users, ClipboardList, LogOut, Plus, CheckCircle, XCircle, AlertC
 Menu, Settings, Sun, CloudRain, Briefcase, LayoutDashboard,
 Sparkles, MapPin, Tag, WifiOff, FileSpreadsheet, Calculator, X, ChevronLeft, ChevronRight, ChevronDown,
 Clock, RefreshCw, Trash2, List, AlertTriangle, ArrowRight, Lock, Palette, Edit, FileText, Info, Edit2, Play, Square,
-Image as ImageIcon, Camera, Moon, SidebarClose, SidebarOpen, Shield, UserCog, Loader2, CalendarPlus, Check, Database, Undo, PieChart, Download, CheckSquare
+Image as ImageIcon, Camera, Moon, SidebarClose, SidebarOpen, Shield, UserCog, Loader2, CalendarPlus, Check, Database, Undo, PieChart, Download, CheckSquare, Bell
 } from 'lucide-react';
 // --- Firebase 綁定設定 (已寫死) ---
 const MANUAL_CONFIG = {
@@ -87,7 +87,7 @@ admin: '管理員'
 };
 const EXTERNAL_WORK_TAGS = ["訪視", "出差", "受訓", "開會", "公出", "專案報告", "大宗"];
 const DEFAULT_WORK_TAGS = ["審查", "訪視", "成效", "試用", "OFF", "專案報告", "大宗", "月報"];
-const DEFAULT_AREA_TAGS = ["高雄", "澎湖", "台東", "屏東", "就業通", "訓就", "分署"];
+const DEFAULT_AREA_TAGS = ["高雄-身障","屏東-身障","台東-身障","澎湖-身障","訓就-岡山","訓就-鳳山","銀髮","分署"];
 const DEFAULT_ROTATION_RULES = [
 { id: 'visit', name: '澎東訪視', matchTag: '訪視', order: ['高湘怡', '黃國裕', '方姿云', '陳秋媚', '蔡凱宇', '盧怡倫'] },
 { id: 'project', name: '專案報告', matchTag: '專案報告', order: ['盧怡倫', '高湘怡', '黃國裕', '方姿云', '蔡凱宇', '陳秋媚'] },
@@ -98,13 +98,25 @@ const TIME_SLOTS = [
 { id: 'afternoon', label: '下午', color: 'bg-sky-200 text-sky-950 border-sky-300' },
 { id: 'all_day', label: '整天', color: 'bg-sky-600 text-white border-sky-700' },];
 const DEFAULT_AREA_COLORS = {
-"高雄": "bg-red-100 text-red-800",
-"澎湖": "bg-orange-100 text-orange-800",
-"台東": "bg-green-100 text-green-800",
-"屏東": "bg-yellow-100 text-yellow-800",
-"就業通": "bg-purple-100 text-purple-800",
-"訓就": "bg-pink-100 text-pink-800",
+"高雄-身障": "bg-red-100 text-red-800",
+"屏東-身障": "bg-yellow-100 text-yellow-800",
+"台東-身障": "bg-green-100 text-green-800",
+"澎湖-身障": "bg-orange-100 text-orange-800",
+"訓就-岡山": "bg-purple-100 text-purple-800",
+"訓就-鳳山": "bg-pink-100 text-pink-800",
+"銀髮": "bg-sky-100 text-sky-800",
 "分署": "bg-gray-100 text-gray-800"
+};
+const DEFAULT_SPECIAL_HOLIDAYS = {
+"2026-02-27": "228補假",
+"2026-04-02": "兒童節補假",
+"2026-04-06": "清明節補假",
+"2026-05-01": "勞動節",
+"2026-09-25": "中秋節",
+"2026-09-28": "教師節",
+"2026-10-09": "國慶補假",
+"2026-10-26": "光復節補假",
+"2026-12-25": "行憲紀念日"
 };
 const PREDEFINED_USERS = [
 { email: 'kaiyu097@gmail.com', name: '蔡凱宇', role: 'admin', initials: '宇', color: 'bg-purple-200', borderColor: '#a855f7' },
@@ -146,6 +158,7 @@ const [view, setView] = useState('dashboard');
 const [usersList, setUsersList] = useState([]);
 const [leaves, setLeaves] = useState([]);
 const [calendarEvents, setCalendarEvents] = useState([]);
+const [importantItems, setImportantItems] = useState([]);
 const [attendanceRecords, setAttendanceRecords] = useState([]);
 const [workTags, setWorkTags] = useState(DEFAULT_WORK_TAGS);
 const [areaTags, setAreaTags] = useState(DEFAULT_AREA_TAGS);
@@ -158,7 +171,7 @@ const [sidebarTheme, setSidebarTheme] = useState('light');
 const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
 const [settings, setSettings] = useState({
 areaColors: DEFAULT_AREA_COLORS,
-customHolidays: {}
+customHolidays: DEFAULT_SPECIAL_HOLIDAYS
 });
 const [loading, setLoading] = useState(true);
 const [db, setDb] = useState(null);
@@ -177,7 +190,17 @@ if (savedRoleNames) setRoleNames(JSON.parse(savedRoleNames));
 const savedAreaColors = localStorage.getItem('areaColors');
 if(savedAreaColors) setSettings(prev => ({...prev, areaColors: JSON.parse(savedAreaColors)}));
 const savedHolidays = localStorage.getItem('customHolidays');
-if(savedHolidays) setSettings(prev => ({...prev, customHolidays: JSON.parse(savedHolidays)}));
+if(savedHolidays) {
+try {
+const parsed = JSON.parse(savedHolidays);
+setSettings(prev => ({...prev, customHolidays: {...DEFAULT_SPECIAL_HOLIDAYS, ...parsed}}));
+} catch(e) {
+setSettings(prev => ({...prev, customHolidays: {...DEFAULT_SPECIAL_HOLIDAYS}}));
+}
+} else {
+setSettings(prev => ({...prev, customHolidays: {...DEFAULT_SPECIAL_HOLIDAYS}}));
+localStorage.setItem('customHolidays', JSON.stringify(DEFAULT_SPECIAL_HOLIDAYS));
+}
 const savedLeaveTypes = localStorage.getItem('leaveTypes');
 if(savedLeaveTypes) {
 try {
@@ -257,11 +280,30 @@ init();
 // Data Synchronization
 useEffect(() => {
 if (!db || !user) return;
+const settingsRef = doc(db, 'artifacts', APP_ID, 'public', 'data', 'app_settings', 'global');
+const unsubSettings = onSnapshot(settingsRef, async (snap) => {
+  if (snap.exists()) {
+    const remote = snap.data() || {};
+    const merged = {
+      areaColors: { ...DEFAULT_AREA_COLORS, ...(remote.areaColors || {}) },
+      customHolidays: { ...DEFAULT_SPECIAL_HOLIDAYS, ...(remote.customHolidays || {}) }
+    };
+    setSettings(merged);
+    localStorage.setItem('areaColors', JSON.stringify(merged.areaColors));
+    localStorage.setItem('customHolidays', JSON.stringify(merged.customHolidays));
+    const missing = Object.keys(DEFAULT_SPECIAL_HOLIDAYS).some(k => !(k in (remote.customHolidays || {})));
+    if (missing) { try { await setDoc(settingsRef, { areaColors: merged.areaColors, customHolidays: merged.customHolidays }, { merge: true }); } catch(e) {} }
+  } else {
+    const init = { areaColors: DEFAULT_AREA_COLORS, customHolidays: DEFAULT_SPECIAL_HOLIDAYS };
+    try { await setDoc(settingsRef, init, { merge: true }); } catch(e) {}
+  }
+});
 const unsubLeaves = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves')), (s) => setLeaves(s.docs.map(d => ({id:d.id, ...d.data()}))));
 const unsubEvents = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'calendar_events')), (s) => setCalendarEvents(s.docs.map(d => ({id:d.id, ...d.data()}))));
 const unsubUsers = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'user_profiles')), (s) => setUsersList(s.docs.map(d => ({ docId: d.id, ...d.data() }))));
 const unsubAttendance = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'attendance')), (s) => setAttendanceRecords(s.docs.map(d => ({id: d.id, ...d.data()}))));
-return () => { unsubLeaves(); unsubEvents(); unsubUsers(); unsubAttendance(); };
+const unsubImportant = onSnapshot(query(collection(db, 'artifacts', APP_ID, 'public', 'data', 'important_items'), orderBy('date','asc')), (s) => setImportantItems(s.docs.map(d => ({id:d.id, ...d.data()}))));
+return () => { unsubSettings(); unsubLeaves(); unsubEvents(); unsubUsers(); unsubAttendance(); unsubImportant(); };
 }, [db, user]);
 const handleLogout = async () => {
 if(auth) await signOut(auth);
@@ -354,6 +396,9 @@ setIsDesktopCollapsed(newState);
 localStorage.setItem('isDesktopCollapsed', JSON.stringify(newState));}
 const crud = {
 createEvent: async (d) => addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'calendar_events'), d),
+createImportantItem: async (d) => addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'important_items'), d),
+updateImportantItem: async (id, data) => updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'important_items', id), data),
+deleteImportantItem: async (id) => deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'important_items', id)),
 deleteEvent: async (id) => deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'calendar_events', id)),
 deleteEventsByGroup: async (gid) => {
 const toDel = calendarEvents.filter(e=>e.groupId===gid);
@@ -465,7 +510,7 @@ ${isDesktopCollapsed ? 'md:w-20' : 'md:w-64'}
 <UserAvatar user={userData} size="w-8 h-8" textSize="text-xs" /></div>
 <main className="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100 transition-all">
 {view === 'dashboard' && <Dashboard user={userData} leaves={leaves} calendarEvents={calendarEvents} setView={setView} leaveTypes={leaveTypes} />}
-{view === 'calendar' && <CalendarView user={userData} users={usersList} events={calendarEvents} leaves={leaves} crud={crud} tags={{workTags, areaTags}} settings={settings} rotationRules={rotationRules} onUpdateRotationRules={handleUpdateRotationRules} />}
+{view === 'calendar' && <CalendarView user={userData} users={usersList} events={calendarEvents} leaves={leaves} importantItems={importantItems} crud={crud} tags={{workTags, areaTags}} settings={settings} rotationRules={rotationRules} onUpdateRotationRules={handleUpdateRotationRules} />}
 {view === 'leave' && <LeaveForm user={userData} users={usersList} leaves={leaves} events={calendarEvents} crud={crud} leaveTypes={leaveTypes} />}
 {view === 'approval' && <ApprovalView currentUser={userData} leaves={leaves} crud={crud} users={usersList} />}
 {view === 'personal' && <PersonalScheduleView user={userData} events={calendarEvents} leaves={leaves} settings={settings} leaveTypes={leaveTypes} crud={crud} users={usersList} />}
@@ -569,7 +614,7 @@ return (
 <td className="p-2"><div className="flex gap-1 flex-wrap">{d.external.afternoon.length > 0 ? d.external.afternoon.map((n,i)=><span key={i} className="bg-orange-100 text-orange-800 px-1.5 py-0.5 rounded text-[11px] whitespace-nowrap">{n}</span>) : '-'}</div></td>
 <td className="p-2"><div className="flex gap-1 flex-wrap">{d.external.all_day.length > 0 ? d.external.all_day.map((n,i)=><span key={i} className="bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded text-[11px] whitespace-nowrap">{n}</span>) : '-'}</div></td></tr></React.Fragment>
 )})}</tbody></table></div></div></div>);}
-function CalendarView({ users, events, leaves, crud, tags, settings, rotationRules, onUpdateRotationRules }) {
+function CalendarView({ users, events, leaves, importantItems, crud, tags, settings, rotationRules, onUpdateRotationRules }) {
 const [date, setDate] = useState(new Date());
 const [viewMode, setViewMode] = useState('month');
 const [modalOpen, setModalOpen] = useState(false);
@@ -580,6 +625,30 @@ const [selAreas, setSelAreas] = useState([]); // 修改：改為陣列支援複�
 const [selUsers, setSelUsers] = useState([]);
 const [editGroupId, setEditGroupId] = useState(null);
 const [isSubmitting, setIsSubmitting] = useState(false);
+const [importantModalOpen, setImportantModalOpen] = useState(false);
+const [importantForm, setImportantForm] = useState({ id: null, date: '', owner: '', text: '' });
+const upcomingImportant = useMemo(() => {
+  const now = new Date();
+  const end = new Date(now); end.setMonth(end.getMonth()+2);
+  return (importantItems || [])
+    .filter(x => x?.date && new Date(x.date) >= new Date(now.getFullYear(), now.getMonth(), now.getDate()) && new Date(x.date) <= end)
+    .sort((a,b)=> new Date(a.date)-new Date(b.date));
+}, [importantItems]);
+const openImportantNew = () => { setImportantForm({ id:null, date:getLocalDateString(new Date()), owner:'', text:'' }); setImportantModalOpen(true); };
+const openImportantEdit = (it) => { setImportantForm({ id: it.id, date: it.date || '', owner: it.owner || '', text: it.text || '' }); setImportantModalOpen(true); };
+const saveImportant = async () => {
+  if(!importantForm.date || !importantForm.text) return alert('請填寫日期與內容');
+  try {
+    if(importantForm.id) await crud.updateImportantItem(importantForm.id, { date: importantForm.date, owner: importantForm.owner || '', text: importantForm.text, updatedAt: new Date() });
+    else await crud.createImportantItem({ date: importantForm.date, owner: importantForm.owner || '', text: importantForm.text, createdAt: new Date() });
+    setImportantModalOpen(false);
+  } catch(e) { alert('儲存失敗：' + e.message); }
+};
+const deleteImportant = async (id) => {
+  if(!confirm('確定刪除此重要事項？')) return;
+  try { await crud.deleteImportantItem(id); } catch(e) { alert('刪除失敗：' + e.message); }
+};
+
 const getDaysInMonth = (d) => new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
 const getFirstDayOfMonth = (d) => new Date(d.getFullYear(), d.getMonth(), 1).getDay();
 const rotationStats = useMemo(() => {
@@ -780,7 +849,25 @@ return (
 <div className="flex bg-white rounded border shadow-sm ml-2 text-xs">
 <button onClick={()=>setViewMode('month')} className={`px-3 py-1.5 ${viewMode==='month'?'bg-slate-800 text-white':'hover:bg-gray-50'}`}>月</button>
 <button onClick={()=>setViewMode('week')} className={`px-3 py-1.5 ${viewMode==='week'?'bg-slate-800 text-white':'hover:bg-gray-50'}`}>週</button></div></div>
-<button onClick={()=>setRotationModalOpen(true)} className="text-xs bg-white px-3 py-1.5 rounded border shadow-sm flex items-center gap-1 hover:bg-blue-50 text-blue-600 font-bold"><RefreshCw size={14}/> 輪序表</button></div>
+<button onClick={()=>setRotationModalOpen(true)} className="text-xs bg-white px-3 py-1.5 rounded border shadow-sm flex items-center gap-1 hover:bg-blue-50 text-blue-600 font-bold"><RefreshCw size={14}/> 輪序表</button>
+<button onClick={openImportantNew} className="text-xs bg-white px-3 py-1.5 rounded border shadow-sm flex items-center gap-1 hover:bg-amber-50 text-amber-700 font-bold"><Bell size={14}/> 重要事項</button></div>
+{upcomingImportant.length>0 && (
+<div className="px-4 py-2 border-b bg-white flex flex-col md:flex-row md:items-center gap-2">
+<div className="text-xs font-bold text-gray-600 flex items-center gap-1 shrink-0"><Bell size={14} className="text-amber-600"/> 公告重要事項（近兩個月）</div>
+<div className="flex flex-wrap gap-2">
+{upcomingImportant.map(it=>{
+const daysLeft = Math.ceil((new Date(it.date).setHours(0,0,0,0) - new Date().setHours(0,0,0,0)) / 86400000);
+return (
+<button key={it.id} onClick={()=>openImportantEdit(it)} className="px-2 py-1 rounded-full border bg-amber-50 hover:bg-amber-100 text-xs text-amber-900 flex items-center gap-2">
+<span className="font-bold">{it.date}</span>
+<span className="truncate max-w-[220px]">{it.text}</span>
+<span className="font-bold">D-{Math.max(daysLeft,0)}</span>
+</button>
+);
+})}
+</div>
+</div>
+)}
 <div className="flex-1 overflow-auto">
 <div className="min-w-[600px] h-full flex flex-col">
 <div className="grid grid-cols-7 border-b bg-white text-center text-sm md:text-base font-bold text-gray-500 py-2 sticky top-0 z-10 shadow-sm">{['日','一','二','三','四','五','六'].map((d,i)=><div key={i} className={i===0||i===6?'text-red-500':''}>{d}</div>)}</div>
