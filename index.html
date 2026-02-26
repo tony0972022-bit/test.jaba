@@ -580,6 +580,23 @@ useEffect(() => {
   }
 }, [userData, unassignedInfo]);
 
+const unassignedCount = useMemo(() => {
+  try {
+    const todayStr = getLocalDateString(new Date());
+    const g = {};
+    (calendarEvents || []).forEach(e => {
+      if (!e || !e.groupId) return;
+      if (!g[e.groupId]) g[e.groupId] = { date: e.date || '', hasTag: false, hasPerson: false };
+      if (e.date && (!g[e.groupId].date || e.date < g[e.groupId].date)) g[e.groupId].date = e.date;
+      if (e.type === 'tag') g[e.groupId].hasTag = true;
+      if (e.type === 'person') g[e.groupId].hasPerson = true;
+    });
+    const count = Object.values(g).filter(x => x.hasTag && !x.hasPerson && x.date && x.date >= todayStr).length;
+    return Number.isFinite(count) ? count : 0;
+  } catch {
+    return 0;
+  }
+}, [calendarEvents]);
 if (loading) return (
 <div className="h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-600 gap-4">
 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
@@ -632,7 +649,7 @@ ${isDesktopCollapsed ? 'md:w-20' : 'md:w-64'}
 <nav className="flex-1 overflow-y-auto py-2 overflow-x-hidden">
 {[
 {id:'dashboard', icon:<LayoutDashboard size={20}/>, label:'儀表板'},
-{id:'calendar', icon:<Calendar size={20}/>, label:'排班日曆'},
+{id:'calendar', icon:<Calendar size={20}/>, label:'排班日曆', count: ((userData.role==='leader'||userData.role==='admin') ? unassignedCount : 0)},
 {id:'leave', icon:<ClipboardList size={20}/>, label:'請假申請'},
 {id:'approval', icon:<CheckCircle size={20}/>, label:'差單審核', count: approvalMenuCount},
 {id:'personal', icon:<FileText size={20}/>, label:'請假狀況'},
@@ -2498,12 +2515,18 @@ let aStart = rec.end ? '13:00' : '';
 let aEnd = rec.end || '';
 if (morningState === 'official') {
 mStart = '出差'; mEnd = '出差';
-} else if (morningState === 'personal' || morningState === 'holiday') {
-mStart = '休息'; mEnd = '休息';}
+} else if (morningState === 'personal') {
+  mStart = '休息'; mEnd = '休息';
+} else if (morningState === 'holiday') {
+  mStart = '例假日'; mEnd = '例假日';
+}
 if (afternoonState === 'official') {
 aStart = '出差'; aEnd = '出差';
-} else if (afternoonState === 'personal' || afternoonState === 'holiday') {
-aStart = '休息'; aEnd = '休息';}
+} else if (afternoonState === 'personal') {
+  aStart = '休息'; aEnd = '休息';
+} else if (afternoonState === 'holiday') {
+  aStart = '例假日'; aEnd = '例假日';
+}
 // 1個日期分兩列寫入，第一列為上午，第二列為下午 (達成四格排版)
 csvContent += `${dateStr},${dayName},${mStart},${mEnd}\n`;
 csvContent += `,,${aStart},${aEnd}\n`;}
@@ -2567,7 +2590,8 @@ afternoonState = stateVal;}
 });
 const renderInput = (type, val, field) => {
 if (type === 'official') return <span className="font-bold text-blue-600 px-2 block w-full max-w-[120px]">出差</span>;
-if (type === 'personal' || type === 'holiday') return <span className="font-bold text-red-400 px-2 block w-full max-w-[120px]">休息</span>;
+if (type === 'personal') return <span className="font-bold text-red-400 px-2 block w-full max-w-[120px]">休息</span>;
+if (type === 'holiday') return <span className="font-bold text-gray-500 px-2 block w-full max-w-[120px]">例假日</span>;
 return <input type="time" className="border rounded p-1 w-full max-w-[120px] bg-white focus:ring-2 focus:ring-blue-300 outline-none" value={val || ''} onChange={(e) => handleTimeChange(dateStr, field, e.target.value)} />;
 };
 return (
