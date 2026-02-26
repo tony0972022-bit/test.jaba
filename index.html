@@ -57,76 +57,48 @@ const MAIL_SECRET_KEY = "kpptja_mail_9Xf3aL7qZt2Vn8Rm4YwQp6Hd1B";
 
 // Simple mail sender (internal use)
 async function sendMail({ targetEmail, subject, body }) {
-  // NOTE: This runs in the browser. We surface failures to the user so it doesn't feel like "nothing happened".
   try {
-    const email = (targetEmail || "").trim().toLowerCase();
-    if (!MAIL_WEBAPP_URL) {
-      alert("寄信功能尚未設定（缺少 MAIL_WEBAPP_URL）");
-      return { ok: false, status: "error", message: "missing_mail_webapp_url" };
-    }
-    if (!email) {
-      alert("寄信失敗：找不到收件者 Email（targetEmail 為空）");
-      return { ok: false, status: "error", message: "missing_target_email" };
-    }
+    if (!MAIL_WEBAPP_URL) throw new Error("MAIL_WEBAPP_URL 未設定");
+    if (!targetEmail) throw new Error("targetEmail 為空，未寄信");
 
-    // Timeout guard to avoid hanging requests
+    // 使用 x-www-form-urlencoded 避免瀏覽器 CORS preflight（GitHub Pages 常見）
+    const form = new URLSearchParams();
+    form.append("key", MAIL_SECRET_KEY);
+    form.append("targetEmail", targetEmail);
+    form.append("subject", subject || "");
+    form.append("body", body || "");
+
+    // 逾時控制（避免一直轉圈/無回應）
     const controller = new AbortController();
-    const timeoutMs = 12000;
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
 
     const r = await fetch(MAIL_WEBAPP_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        key: MAIL_SECRET_KEY,
-        targetEmail: email,
-        subject: subject || "",
-        body: body || ""
-      }),
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body: form.toString(),
       signal: controller.signal
     });
 
-    clearTimeout(timer);
+    clearTimeout(timeoutId);
 
     const t = await r.text();
     let j = null;
-    try { j = JSON.parse(t); } catch { /* non-JSON response */ }
+    try { j = JSON.parse(t); } catch {}
 
-    // Apps Script should reply with JSON {status:"success"}.
-    const status = (j && j.status) ? j.status : (r.ok ? "unknown" : "error");
-    const message = (j && (j.message || j.error)) ? (j.message || j.error) : "";
+    if (!r.ok) throw new Error(`HTTP ${r.status}：${(t || "").slice(0, 200)}`);
+    if (!j) throw new Error(`非 JSON 回應：${(t || "").slice(0, 200)}`);
+    if (j.status !== "success") throw new Error(j.message || "寄信失敗");
 
-    if (!r.ok) {
-      console.warn("sendMail http error:", r.status, t);
-      alert(`寄信失敗：Mail 伺服器回應錯誤（HTTP ${r.status}）
-${message || t}`);
-      return { ok: false, status: "error", message: `http_${r.status}` };
-    }
-
-    if (status !== "success") {
-      console.warn("sendMail failed:", j || t);
-      const niceMsg =
-        status === "error" && message === "unauthorized"
-          ? "寄信失敗：金鑰驗證失敗（unauthorized）。請確認 Apps Script 的 SECRET_KEY 與前端 MAIL_SECRET_KEY 一致，且重新部署 Web App。"
-          : `寄信失敗：${message || "未知錯誤"}
-${(typeof t === "string" && t.length < 400) ? t : ""}`;
-      alert(niceMsg);
-      return { ok: false, status, message: message || "mail_failed" };
-    }
-
-    console.log("sendMail success:", { to: email, subject });
-    return { ok: true, status: "success" };
+    console.log("Mail sent:", j);
+    return true;
   } catch (e) {
-    const msg = String(e && e.message ? e.message : e);
-    console.warn("sendMail error:", e);
-    if (msg.includes("aborted") || msg.includes("AbortError")) {
-      alert("寄信逾時：Mail 伺服器未在 12 秒內回應，請稍後再試或檢查 Apps Script 部署/網路狀態。");
-      return { ok: false, status: "error", message: "timeout" };
-    }
+    const msg = (e && e.name === "AbortError") ? "寄信逾時（12 秒未回應），請稍後再試或檢查 Apps Script 部署/權限" : (e?.message || String(e));
     alert("寄信失敗：" + msg);
-    return { ok: false, status: "error", message: msg };
+    console.warn("sendMail error:", e);
+    return false;
   }
 }
+
 
 // -----------------------------------------------------------
 // --- Global Constants ---
