@@ -114,6 +114,18 @@ const fmtDT = (v) => {
   }
 };
 
+// --- ISO datetime formatter (remove 'T' and seconds) ---
+const fmtISO = (s) => {
+  if (!s) return '—';
+  try {
+    if (typeof s === 'string') return s.replace('T',' ').replace(/:\d\d(\.\d+)?$/, '').slice(0,16);
+    return fmtDT(s);
+  } catch {
+    return '—';
+  }
+};
+
+
 
 
 // -----------------------------------------------------------
@@ -1533,7 +1545,8 @@ try {
 
 你的差單已完成職代審查，等待主管核准。
 假別：${leave.type||''}
-起訖：${leave.start||''} ～ ${leave.end||''}
+假別時數：${(leave.hours!=null && leave.hours!=='') ? (leave.hours + ' 小時') : '—'}
+起訖：${fmtISO(leave.start)} ～ ${fmtISO(leave.end)}
 出差事由：${leave.reason||leave.note||''}
 
 時間序：
@@ -1558,7 +1571,8 @@ try {
 
 你的差單已核准。
 假別：${leave.type||''}
-起訖：${leave.start||''} ～ ${leave.end||''}
+假別時數：${(leave.hours!=null && leave.hours!=='') ? (leave.hours + ' 小時') : '—'}
+起訖：${fmtISO(leave.start)} ～ ${fmtISO(leave.end)}
 出差事由：${leave.reason||leave.note||''}
 
 時間序：
@@ -1583,7 +1597,7 @@ try {
 
 你的差單已被退件。
 假別：${leave.type||''}
-起訖：${leave.start||''} ～ ${leave.end||''}
+起訖：${fmtISO(leave.start)} ～ ${fmtISO(leave.end)}
 
 如需調整內容，請重新送出或洽主管。
 （系統自動通知）`
@@ -1639,6 +1653,14 @@ const step1 = status !== 'pending' ? 'text-green-600 font-bold' : 'text-gray-400
 const step2 = status === 'approved' ? 'text-green-600 font-bold' : (status === 'deputy_signed' ? 'text-blue-600 animate-pulse font-bold' : 'text-gray-400');
 return (<div className="flex items-center text-xs gap-1 bg-gray-100 px-2 py-1 rounded-full"><span className={`flex items-center ${step1}`}>1. 職代 {status !== 'pending' ? '✅' : '⏳'}</span><span className="text-gray-300">→</span><span className={`flex items-center ${step2}`}>2. 主管 {status === 'approved' ? '✅' : '⏳'}</span></div>);}
 return (
+{processingId && (
+  <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center">
+    <div className="bg-white rounded-xl px-5 py-4 shadow flex items-center gap-3">
+      <Loader2 className="animate-spin" size={18}/>
+      <div className="text-sm font-bold">處理中，請稍候…</div>
+    </div>
+  </div>
+)}
 <div className="max-w-6xl mx-auto space-y-8">
 <div className="flex justify-between items-center"><h2 className="text-xl font-bold flex items-center gap-2"><CheckCircle/> 差單審核</h2></div>
 <div className="bg-white rounded shadow overflow-hidden border-t-4 border-blue-500"><div className="bg-blue-50 px-4 py-3 border-b border-blue-100 font-bold text-blue-800 flex items-center gap-2"><User size={18}/> 第一關：待我簽核 (我是職代)</div>{pendingMyDeputy.length===0 ? <div className="p-8 text-center text-gray-400 text-sm">無待辦事項，您目前沒有需要代理的案件。</div> : <table className="w-full text-sm text-left"><thead className="bg-gray-50 border-b text-gray-500"><tr><th className="p-3">申請人</th><th className="p-3">項目</th><th className="p-3">進度狀態</th><th className="p-3">操作</th></tr></thead><tbody>{pendingMyDeputy.map(l => (<tr key={l.id} className="border-b last:border-0 hover:bg-gray-50"><td className="p-3 font-bold text-gray-700">{l.requesterName}</td><td className="p-3"><span className="font-bold text-blue-600">{l.type}</span><div className="text-xs text-gray-500 mt-1">{l.start.replace('T',' ')} <br/>~ {l.end.replace('T',' ')}</div></td><td className="p-3"><StatusStep status={l.status}/></td><td className="p-3 flex gap-2"><button onClick={()=>handleDeputyAgree(l)} disabled={processingId === l.id} className={`text-white font-bold text-xs bg-blue-500 px-3 py-1.5 rounded shadow-sm flex items-center gap-1 ${processingId === l.id ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'}`}>{processingId === l.id ? <Loader2 className="animate-spin" size={12}/> : <CheckCircle size={12}/>} 簽核同意</button><button onClick={()=>handleReject(l)} disabled={processingId === l.id} className={`text-red-600 font-bold text-xs bg-red-50 px-3 py-1.5 rounded ${processingId === l.id ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-100'}`}>{processingId === l.id ? '...' : '退回'}</button></td></tr>))}</tbody></table>}</div>
