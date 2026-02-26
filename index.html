@@ -688,8 +688,7 @@ const [selUsers, setSelUsers] = useState([]);
 const [editGroupId, setEditGroupId] = useState(null);
 const [isSubmitting, setIsSubmitting] = useState(false);
 const [importantModalOpen, setImportantModalOpen] = useState(false);
-const [importantForm, setImportantForm] = u
-// --- Helper: Effective leave hours for stats (跨天以 8 小時/天計) ---
+const [importantForm, setImportantForm] = u// --- Helper: Effective leave hours for stats (跨天以 8 小時/天計) ---
 const getEffectiveLeaveHours = (l) => {
 try {
 const s = (l.start || '').split('T')[0];
@@ -702,7 +701,6 @@ const days = Math.floor((ed - sd) / 86400000) + 1;
 return Math.max(0, days) * 8;
 } catch { return Number(l.hours || 0); }
 };
-seState({ id: null, date: '', owner: '', text: '' });
 useEffect(()=>{try{if((importantItems||[]).length===0&&!localStorage.getItem('important_seed_v1')){localStorage.setItem('important_seed_v1','1');crud.createImportantItem({date:'2026-03-05',owner:'方姿云',text:'第一期成果報告（工作項目：分配等等）',createdAt:new Date()});}}catch(e){}},[importantItems,crud]);
 const upcomingImportant = useMemo(() => {
   const now = new Date();
