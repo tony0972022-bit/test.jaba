@@ -100,6 +100,22 @@ async function sendMail({ targetEmail, subject, body }) {
 }
 
 
+// --- DateTime formatter (for email timeline) ---
+const fmtDT = (v) => {
+  if (!v) return '—';
+  try {
+    const d = (typeof v === 'object' && v !== null && typeof v.toDate === 'function') ? v.toDate()
+      : (typeof v === 'object' && v !== null && typeof v.seconds === 'number') ? new Date(v.seconds * 1000)
+      : new Date(v);
+    if (!d || isNaN(d.getTime())) return '—';
+    return d.toLocaleString('zh-TW', { hour12: false });
+  } catch {
+    return '—';
+  }
+};
+
+
+
 // -----------------------------------------------------------
 // --- Global Constants ---
 const WEATHER_LOCATIONS = [
@@ -1350,7 +1366,7 @@ return pending.sort((a,b) => a.date.localeCompare(b.date));
 useEffect(() => {
 if(form.start && form.end) { const diff = (new Date(form.end)-new Date(form.start))/36e5; setHours(Math.max(0, Math.round(diff*2)/2)); }
 }, [form.start, form.end]);
-const handleTaskSubmit = async (taskData, taskId) => { setSubmittingTaskId(taskId); try { await crud.createLeave({ ...taskData, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, status: 'pending', timestamp: new Date(), submittedAt: new Date() });
+const handleTaskSubmit = async (taskData, taskId) => { setSubmittingTaskId(taskId); try { const now = new Date(); await crud.createLeave({ ...taskData, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, status: 'pending', timestamp: now, submittedAt: now });
 // --- Mail notify: submit (requester + deputy) ---
 try {
   const requesterEmail = (user.email||'').toLowerCase();
@@ -1358,19 +1374,8 @@ try {
   const deputyUser = deputyId ? users.find(u => (u.uid||u.docId||'')===deputyId || (u.docId||'')===deputyId || ((u.email||'').toLowerCase()===String(deputyId).toLowerCase())) : null;
   const deputyEmail = deputyUser ? (deputyUser.email||'').toLowerCase() : (String(deputyId).includes('@') ? String(deputyId).toLowerCase() : '');
   // requester
-  if (requesterEmail) {
-    await sendMail({
-      targetEmail: requesterEmail,
-      subject: "【差勤排班】已送出申請，等待審核",
-      body: `你好 ${user.name}：
-
-你的申請已送出，等待職代審查。
-假別：${taskData.type||''}
-日期：${(taskData.start||'').split('T')[0]||''}
-
-（系統自動通知）`
-    });
-  }
+  // NOTE: 送出申請不發 mail（依需求關閉）
+  
   // deputy
   if (deputyEmail) {
     await sendMail({
@@ -1381,7 +1386,13 @@ try {
 有一筆新的差單待審。
 申請人：${user.name}
 假別：${taskData.type||''}
-日期：${(taskData.start||'').split('T')[0]||''}
+起訖：${taskData.start||''} ～ ${taskData.end||''}
+出差事由：${taskData.reason||taskData.note||''}
+
+時間序：
+1. 送出申請時間：${fmtDT(now)}
+2. 職代人員：${(deputyUser&&deputyUser.name)||'—'}｜同意時間：—
+3. 組長：—｜同意時間：—
 
 請至系統「差單審核」查看。
 （系統自動通知）`
@@ -1429,19 +1440,8 @@ try {
   const deputyUser = deputyId ? users.find(u => (u.uid||u.docId||'')===deputyId || (u.docId||'')===deputyId || ((u.email||'').toLowerCase()===String(deputyId).toLowerCase())) : null;
   const deputyEmail = deputyUser ? (deputyUser.email||'').toLowerCase() : (String(deputyId).includes('@') ? String(deputyId).toLowerCase() : '');
   // requester
-  if (requesterEmail) {
-    await sendMail({
-      targetEmail: requesterEmail,
-      subject: "【差勤排班】已送出申請，等待審核",
-      body: `你好 ${user.name}：
-
-你的申請已送出，等待職代審查。
-假別：${form.type||''}
-起訖：${(finalStart||'')} ～ ${(finalEnd||'')}
-
-（系統自動通知）`
-    });
-  }
+  // NOTE: 送出申請不發 mail（依需求關閉）
+  
   // deputy
   if (deputyEmail) {
     await sendMail({
@@ -1521,7 +1521,7 @@ link.click();
 };
 const pendingMyDeputy = leaves.filter(l => (l.deputyId === currentUser.uid || l.deputyId === (currentUser.email || '').toLowerCase() || l.deputyId === currentUser.docId) && l.status === 'pending');
 const pendingLeader = (currentUser.role === 'leader' || currentUser.role === 'admin') ? leaves.filter(l => l.status === 'deputy_signed') : [];
-const handleDeputyAgree = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'deputy_signed' });
+const handleDeputyAgree = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'deputy_signed', deputySignedAt: new Date(), deputySignedByName: currentUser.name || currentUser.displayName || '' });
 // --- Mail notify: deputy reviewed -> requester ---
 try {
   const requesterEmail = (leave.requesterEmail||'').toLowerCase();
@@ -1534,13 +1534,19 @@ try {
 你的差單已完成職代審查，等待主管核准。
 假別：${leave.type||''}
 起訖：${leave.start||''} ～ ${leave.end||''}
+出差事由：${leave.reason||leave.note||''}
+
+時間序：
+1. 送出申請時間：${fmtDT(leave.submittedAt||leave.timestamp)}
+2. 職代人員：${leave.deputySignedByName || (currentUser.name||'—')}｜同意時間：${fmtDT(leave.deputySignedAt || new Date())}
+3. 組長：—｜同意時間：—
 
 （系統自動通知）`
     });
   }
 } catch (mailErr) { console.warn("mail notify (deputy_signed) failed:", mailErr); }
  } catch(e) { alert("操作失敗"); } finally { setProcessingId(null); } };
-const handleLeaderApprove = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'approved', approverId: currentUser.uid });
+const handleLeaderApprove = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'approved', approverId: currentUser.uid, approvedAt: new Date(), approvedByName: currentUser.name || currentUser.displayName || '' });
 // --- Mail notify: approved -> requester ---
 try {
   const requesterEmail = (leave.requesterEmail||'').toLowerCase();
@@ -1553,6 +1559,12 @@ try {
 你的差單已核准。
 假別：${leave.type||''}
 起訖：${leave.start||''} ～ ${leave.end||''}
+出差事由：${leave.reason||leave.note||''}
+
+時間序：
+1. 送出申請時間：${fmtDT(leave.submittedAt||leave.timestamp)}
+2. 職代人員：${leave.deputySignedByName || '—'}｜同意時間：${fmtDT(leave.deputySignedAt)}
+3. 組長：${(currentUser.name||'—')}｜同意時間：${fmtDT(new Date())}
 
 （系統自動通知）`
     });
