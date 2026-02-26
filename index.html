@@ -742,9 +742,6 @@ const [selAreas, setSelAreas] = useState([]); // 修改：改為陣列支援複�
 const [selUsers, setSelUsers] = useState([]);
 const [editGroupId, setEditGroupId] = useState(null);
 const [isSubmitting, setIsSubmitting] = useState(false);
-const [openBlock1, setOpenBlock1] = useState(true);
-const [openBlock2, setOpenBlock2] = useState(true);
-const block2Ref = useRef(null);
 const [importantModalOpen, setImportantModalOpen] = useState(false);
 const [importantForm, setImportantForm] = useState({ id: null, date: '', owner: '', text: '' });
 useEffect(()=>{try{if((importantItems||[]).length===0&&!localStorage.getItem('important_seed_v1')){localStorage.setItem('important_seed_v1','1');crud.createImportantItem({date:'2026-03-05',owner:'方姿云',text:'第一期成果報告（工作項目：分配等等）',createdAt:new Date()});}}catch(e){}},[importantItems,crud]);
@@ -1348,8 +1345,12 @@ const [slotDate, setSlotDate] = useState(getLocalDateString());
 const [slotType, setSlotType] = useState('all_day');
 const [isSubmitting, setIsSubmitting] = useState(false);
 const [submittingTaskId, setSubmittingTaskId] = useState(null);
+const [openBlock1, setOpenBlock1] = useState(true);
+const [openBlock2, setOpenBlock2] = useState(true);
+const block2Ref = useRef(null);
 const officialTypes = leaveTypes.filter(t => t.category === 'official');
 const personalTypes = leaveTypes.filter(t => t.category === 'personal');
+const overtimeTypeName = officialTypes.find(t => (t.name||'').includes('加班'))?.name || '加班';
 const currentTypeDesc = leaveTypes.find(t => t.name === form.type)?.desc || '';
 const pendingExternalTasks = useMemo(() => {
 const groups = {};
