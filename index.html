@@ -434,7 +434,8 @@ const pendingApprovalCount = (userData.role === 'leader' || userData.role === 'a
 ? leaves.filter(l => l.status === 'deputy_signed').length
 : 0;
 const myPendingDeputy = leaves.filter(l => (l.deputyId === userData.uid || l.deputyId === (userData.email || '').toLowerCase()) && l.status === 'pending').length;
-const totalAlert = pendingApprovalCount + myPendingDeputy;
+const totalAlert = pendingApprovalCount \+ myPendingDeputy;
+const approvalMenuCount = (userData.role === 'leader' || userData.role === 'admin') ? totalAlert : myPendingDeputy;
 const isLight = sidebarTheme === 'light';
 const sidebarBg = isLight ? 'bg-white border-r border-gray-200 text-gray-800' : 'bg-slate-800 text-gray-100 border-r border-slate-700';
 const sidebarHover = isLight ? 'hover:bg-gray-100' : 'hover:bg-slate-700';
@@ -475,7 +476,7 @@ ${isDesktopCollapsed ? 'md:w-20' : 'md:w-64'}
 {id:'dashboard', icon:<LayoutDashboard size={20}/>, label:'儀表板'},
 {id:'calendar', icon:<Calendar size={20}/>, label:'排班日曆'},
 {id:'leave', icon:<ClipboardList size={20}/>, label:'請假申請'},
-...(userData.role !== 'staff' ? [{id:'approval', icon:<CheckCircle size={20}/>, label:'差單審核', count: totalAlert}] : []),
+{id:'approval', icon:<CheckCircle size={20}/>, label:'差單審核', count: approvalMenuCount},
 {id:'personal', icon:<FileText size={20}/>, label:'請假狀況'},
 {id:'statistics', icon:<PieChart size={20}/>, label:'假別統計'},
 {id:'attendance', icon:<Clock size={20}/>, label:'打卡紀錄'},
