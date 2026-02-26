@@ -179,6 +179,41 @@ const getWeatherIcon = (rainPercent) => {
   return <Sun className="text-orange-500" size={24}/>;
 };
 
+// --- Weather helpers: make wind/UV more intuitive ---
+const windLevelText = (kmh) => {
+  const v = Number(kmh);
+  if (isNaN(v)) return '—';
+  if (v < 1) return '無風';
+  if (v < 6) return '微風';
+  if (v < 12) return '和風';
+  if (v < 20) return '清風';
+  if (v < 29) return '強風';
+  if (v < 39) return '疾風';
+  if (v < 50) return '烈風';
+  return '暴風';
+};
+const uvLevelText = (uv) => {
+  const v = Number(uv);
+  if (isNaN(v)) return '—';
+  if (v <= 2) return '低';
+  if (v <= 5) return '中';
+  if (v <= 7) return '高';
+  if (v <= 10) return '過量';
+  return '危險';
+};
+
+// deterministic daily variation helper
+const hashSeed = (s) => {
+  let h = 2166136261;
+  for (let i=0; i<s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0);
+};
+const pickBySeed = (arr, seedStr) => {
+  if (!arr || arr.length === 0) return '';
+  const idx = hashSeed(String(seedStr)) % arr.length;
+  return arr[idx];
+};
+
 const TAIWAN_HOLIDAYS_2026 = {
 "2026-01-01": "元旦", "2026-02-16": "除夕", "2026-02-17": "春節",
 "2026-02-18": "春節", "2026-02-19": "春節", "2026-02-20": "春節", "2026-02-28": "二二八",
@@ -807,14 +842,52 @@ week.push({ day: weekDays[d.getDay()], date: dStr, external: externalPeople });}
 return week;
 };
 const weekData = getWeekData();
+
 const hour = today.getHours();
-let greeting = "";
-let greetingIcon = "👋";
-if (hour >= 5 && hour < 12) { greeting = "早安！一日之計在於晨"; greetingIcon = "☀️"; }
-else if (hour >= 12 && hour < 14) { greeting = "午安！記得好好吃頓午餐喔"; greetingIcon = "🍱"; }
-else if (hour >= 14 && hour < 18) { greeting = "下午好！喝杯茶提提神，繼續加油"; greetingIcon = "☕️"; }
-else if (hour >= 18 && hour < 22) { greeting = "晚安！今天也辛苦了，好好休息"; greetingIcon = "🌙"; }
-else { greeting = "夜深了，還在忙嗎？要注意肝臟健康喔"; greetingIcon = "🦉"; }
+const todayKey = getLocalDateString(today);
+// 依時段與日期做「每日有變化」的問候語（同一天同時段保持一致）
+const greetingPool = {
+  morning: [
+    { t: "早安！一日之計在於晨", i: "☀️" },
+    { t: "早安～先把最重要的一件事搞定", i: "☀️" },
+    { t: "早安！今天就用順手的節奏開場", i: "🌤️" },
+    { t: "早安！先喝口水、呼吸一下，再出發", i: "💧" },
+    { t: "早安！把今天當成一次小升級", i: "🚀" },
+  ],
+  noon: [
+    { t: "午安！記得好好吃頓午餐喔", i: "🍱" },
+    { t: "午安～補充能量，下午才有力氣", i: "🥣" },
+    { t: "午安！午休 10 分鐘也很有用", i: "🧘" },
+    { t: "午安！吃飽後先把最急的處理掉", i: "📌" },
+  ],
+  afternoon: [
+    { t: "下午好！喝杯茶提提神，繼續加油", i: "☕️" },
+    { t: "下午好～把大任務切小塊會更順", i: "🧩" },
+    { t: "下午好！先清一個待辦，成就感馬上來", i: "✅" },
+    { t: "下午好！保持節奏，比拼命更有效", i: "🎯" },
+  ],
+  evening: [
+    { t: "晚安！今天也辛苦了，好好休息", i: "🌙" },
+    { t: "晚安～把明天的第一步先想好就好", i: "🗒️" },
+    { t: "晚安！收尾 5 分鐘，明天省 30 分鐘", i: "⏱️" },
+    { t: "晚安～今天做到這裡已經很可以了", i: "🌙" },
+  ],
+  late: [
+    { t: "夜深了，還在忙嗎？要注意休息喔", i: "🦉" },
+    { t: "夜深了～先存檔，明天再處理也行", i: "💾" },
+    { t: "夜深了！如果卡住，先睡一覺常常更快", i: "😴" },
+    { t: "夜深了～明天的你會感謝現在去睡的你", i: "🛌" },
+  ],
+};
+const slotKey =
+  (hour >= 5 && hour < 12) ? "morning" :
+  (hour >= 12 && hour < 14) ? "noon" :
+  (hour >= 14 && hour < 18) ? "afternoon" :
+  (hour >= 18 && hour < 22) ? "evening" : "late";
+
+const picked = pickBySeed(greetingPool[slotKey], `${todayKey}_${slotKey}`);
+const greeting = picked?.t || "哈囉！";
+const greetingIcon = picked?.i || "👋";
 return (
 <div className="space-y-6 max-w-5xl mx-auto">
 <div className="bg-white p-6 rounded-lg shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
@@ -830,8 +903,8 @@ return (
 <span className="text-xl font-black text-gray-800 mb-1">{w.temp}</span>
 <div className="flex flex-wrap justify-center gap-1 text-[10px] font-medium text-gray-600">
 <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded" title="降雨機率">☔ {w.rain}</span>
-<span className="bg-gray-200 px-1.5 py-0.5 rounded" title="風量">🌬️ {w.wind}</span>
-<span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded" title="紫外線">UV: {w.uv}</span></div></div>
+<span className="bg-gray-200 px-1.5 py-0.5 rounded" title={`風速：${(w?._raw?.wind ?? "—")} km/h`}>🌬️ {windLevelText(w?._raw?.wind)} {typeof (w?._raw?.wind) === "number" ? `(${Math.round(w._raw.wind)}km/h)` : ""}</span>
+<span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded" title={`紫外線指數：${(w?._raw?.uv ?? "—")}`}>UV {uvLevelText(w?._raw?.uv)} {typeof (w?._raw?.uv) === "number" ? `(${Math.round(w._raw.uv)})` : ""}</span></div></div>
 ))}</div></div>
 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 <div className="bg-white p-5 rounded-lg shadow-sm border-l-4 border-blue-500 h-full flex flex-col"><h3 className="text-gray-500 text-sm font-medium">今日外勤</h3><span className="text-2xl font-bold text-blue-700 block mt-1 mb-2">{uniqueExternalDetails.length} 人</span><div className="text-xs text-gray-500 mt-auto flex flex-wrap gap-1">{uniqueExternalDetails.length > 0 ? uniqueExternalDetails.map((detail, i) => <span key={i} className="bg-blue-50 px-1.5 py-0.5 rounded border">{detail}</span>) : '無排定外勤'}</div></div>
