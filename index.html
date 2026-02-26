@@ -1653,6 +1653,7 @@ const step1 = status !== 'pending' ? 'text-green-600 font-bold' : 'text-gray-400
 const step2 = status === 'approved' ? 'text-green-600 font-bold' : (status === 'deputy_signed' ? 'text-blue-600 animate-pulse font-bold' : 'text-gray-400');
 return (<div className="flex items-center text-xs gap-1 bg-gray-100 px-2 py-1 rounded-full"><span className={`flex items-center ${step1}`}>1. 職代 {status !== 'pending' ? '✅' : '⏳'}</span><span className="text-gray-300">→</span><span className={`flex items-center ${step2}`}>2. 主管 {status === 'approved' ? '✅' : '⏳'}</span></div>);}
 return (
+<>
 {processingId && (
   <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center">
     <div className="bg-white rounded-xl px-5 py-4 shadow flex items-center gap-3">
@@ -1778,7 +1779,8 @@ l.status === 'withdrawn' ? '已撤銷' : '審核中'}</span>
 <button onClick={() => setAdminEditModal({open: false, leave: null, hours: '', status: ''})} className="flex-1 py-2 bg-gray-100 text-gray-600 font-bold rounded-lg hover:bg-gray-200 transition">取消</button>
 <button onClick={confirmAdminEdit} disabled={!!processingId} className="flex-1 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition flex justify-center items-center gap-2">
 {processingId ? <Loader2 size={16} className="animate-spin"/> : '儲存修改'}</button></div></div></div>
-)}</div>);}
+)}</div></>
+);}
 function StatisticsView({ users, leaves, currentUser, onUpdateAnyProfile, crud }) {
 const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 const [selectedMonth, setSelectedMonth] = useState('all');
