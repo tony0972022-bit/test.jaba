@@ -665,8 +665,7 @@ const [selUsers, setSelUsers] = useState([]);
 const [editGroupId, setEditGroupId] = useState(null);
 const [isSubmitting, setIsSubmitting] = useState(false);
 const [importantModalOpen, setImportantModalOpen] = useState(false);
-const [importantForm, setImportantForm] = u
-seState({ id: null, date: '', owner: '', text: '' });
+const [importantForm, setImportantForm] = useState({ id: null, date: '', owner: '', text: '' });
 useEffect(()=>{try{if((importantItems||[]).length===0&&!localStorage.getItem('important_seed_v1')){localStorage.setItem('important_seed_v1','1');crud.createImportantItem({date:'2026-03-05',owner:'方姿云',text:'第一期成果報告（工作項目：分配等等）',createdAt:new Date()});}}catch(e){}},[importantItems,crud]);
 const upcomingImportant = useMemo(() => {
   const now = new Date();
