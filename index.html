@@ -513,7 +513,7 @@ ${isDesktopCollapsed ? 'md:w-20' : 'md:w-64'}
 {view === 'calendar' && <CalendarView user={userData} users={usersList} events={calendarEvents} leaves={leaves} importantItems={importantItems} crud={crud} tags={{workTags, areaTags}} settings={settings} rotationRules={rotationRules} onUpdateRotationRules={handleUpdateRotationRules} />}
 {view === 'leave' && <LeaveForm user={userData} users={usersList} leaves={leaves} events={calendarEvents} crud={crud} leaveTypes={leaveTypes} />}
 {view === 'approval' && <ApprovalView currentUser={userData} leaves={leaves} crud={crud} users={usersList} />}
-{view === 'personal' && <PersonalScheduleView user={userData} events={calendarEvents} leaves={leaves} settings={settings} leaveTypes={leaveTypes} crud={crud} users={usersList} />}
+{view === 'personal' && <PersonalScheduleView user={userData} events={calendarEvents} leaves={leaves} settings={settings} leaveTypes={leaveTypes} crud={crud} users={usersList} setView={setView} />}
 {view === 'statistics' && <StatisticsView users={usersList} leaves={leaves} currentUser={userData} onUpdateAnyProfile={handleUpdateAnyUserProfile} crud={crud} />}
 {view === 'attendance' && <AttendanceView user={userData} db={db} attendanceRecords={attendanceRecords} leaves={leaves} leaveTypes={leaveTypes} settings={settings} />}
 {view === 'members' && <MembersView db={db} users={usersList} currentUser={userData} roleNames={roleNames} />}
@@ -526,7 +526,9 @@ const [weeksToShow, setWeeksToShow] = useState(1);
 const today = new Date();
 const weekDays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
 const todayStr = getLocalDateString(today);
-const pendingCount = leaves.filter(l => l.status === 'pending' || l.status === 'deputy_signed').length;
+const myDeputyPendingCount = leaves.filter(l => (l.deputyId === user.uid || l.deputyId === user.docId || l.deputyId === (user.email||'').toLowerCase()) && l.status === 'pending').length;
+const teamDeputyPendingCount = (user.role === 'leader' || user.role === 'admin') ? leaves.filter(l => l.status === 'pending' && !!l.deputyId).length : 0;
+const teamLeaderPendingCount = (user.role === 'leader' || user.role === 'admin') ? leaves.filter(l => l.status === 'deputy_signed').length : 0;
 const myPendingCount = leaves.filter(l => (l.requesterId === user.uid || l.requesterId === user.docId) && (l.status === 'pending' || l.status === 'deputy_signed')).length;
 const personalLeaveTypeNames = leaveTypes.filter(t => t.category === 'personal').map(t => t.name);
 const todayLeavesDetails = leaves.filter(l => l.start.startsWith(todayStr) && l.status === 'approved' && personalLeaveTypeNames.includes(l.type)).map(l => {
@@ -593,7 +595,26 @@ return (
 <div className="bg-white p-5 rounded-lg shadow-sm border-l-4 border-blue-500 h-full flex flex-col"><h3 className="text-gray-500 text-sm font-medium">今日外勤</h3><span className="text-2xl font-bold text-blue-700 block mt-1 mb-2">{uniqueExternalDetails.length} 人</span><div className="text-xs text-gray-500 mt-auto flex flex-wrap gap-1">{uniqueExternalDetails.length > 0 ? uniqueExternalDetails.map((detail, i) => <span key={i} className="bg-blue-50 px-1.5 py-0.5 rounded border">{detail}</span>) : '無排定外勤'}</div></div>
 <div className="bg-white p-5 rounded-lg shadow-sm border-l-4 border-green-500 h-full flex flex-col"><h3 className="text-gray-500 text-sm font-medium">今日請假</h3><span className="text-2xl font-bold text-green-700 block mt-1 mb-2">{todayLeavesDetails.length} 人</span><div className="text-xs text-gray-500 mt-auto flex flex-wrap gap-1">{todayLeavesDetails.length > 0 ? todayLeavesDetails.map((detail, i) => <span key={i} className="bg-green-50 px-1.5 py-0.5 rounded border">{detail}</span>) : '全體出勤'}</div></div>
 <div onClick={() => setView('personal')} className="bg-white p-5 rounded-lg shadow-sm border-l-4 border-purple-500 cursor-pointer hover:bg-purple-50 transition h-full flex flex-col"><h3 className="text-gray-500 text-sm font-medium flex items-center justify-between">我的請假進度 <ArrowRight size={16}/></h3><span className="text-2xl font-bold text-purple-600 block mt-1 mb-1">{myPendingCount} 筆</span><span className="text-xs text-gray-500 mt-auto">審核中尚未核准</span></div>
-<div onClick={() => setView('approval')} className="bg-white p-5 rounded-lg shadow-sm border-l-4 border-orange-500 cursor-pointer hover:bg-orange-50 transition h-full flex flex-col"><h3 className="text-gray-500 text-sm font-medium flex items-center justify-between">需我審核的差單 <ArrowRight size={16}/></h3><span className="text-2xl font-bold text-orange-600 block mt-1 mb-1">{pendingCount} 筆</span><span className="text-xs text-gray-500 mt-auto">等待簽核處理</span></div></div>
+{(user.role==='leader'||user.role==='admin') ? (
+<div className="h-full flex flex-col gap-2">
+  <div onClick={() => setView('approval')} className="bg-white p-5 rounded-lg shadow-sm border-l-4 border-amber-500 cursor-pointer hover:bg-amber-50 transition flex-1 flex flex-col">
+    <h3 className="text-gray-500 text-sm font-medium flex items-center justify-between">職代審核 <ArrowRight size={16}/></h3>
+    <span className="text-2xl font-bold text-amber-700 block mt-1 mb-1">{teamDeputyPendingCount} 筆</span>
+    <span className="text-xs text-gray-500 mt-auto">待職代簽核</span>
+  </div>
+  <div onClick={() => setView('approval')} className="bg-white p-5 rounded-lg shadow-sm border-l-4 border-orange-500 cursor-pointer hover:bg-orange-50 transition flex-1 flex flex-col">
+    <h3 className="text-gray-500 text-sm font-medium flex items-center justify-between">差單審核 <ArrowRight size={16}/></h3>
+    <span className="text-2xl font-bold text-orange-600 block mt-1 mb-1">{teamLeaderPendingCount} 筆</span>
+    <span className="text-xs text-gray-500 mt-auto">待最終核准</span>
+  </div>
+</div>
+) : (
+<div onClick={() => setView('approval')} className="bg-white p-5 rounded-lg shadow-sm border-l-4 border-orange-500 cursor-pointer hover:bg-orange-50 transition h-full flex flex-col">
+  <h3 className="text-gray-500 text-sm font-medium flex items-center justify-between">需我審核(職代) <ArrowRight size={16}/></h3>
+  <span className="text-2xl font-bold text-orange-600 block mt-1 mb-1">{myDeputyPendingCount} 筆</span>
+  <span className="text-xs text-gray-500 mt-auto">待我簽核</span>
+</div>
+)}</div>
 <div className="bg-white rounded-lg shadow-sm border p-4">
 <div className="flex justify-between items-center mb-4">
 <h3 className="font-bold text-gray-700 flex items-center gap-2"><Briefcase size={18}/> 外勤排班概況</h3>
@@ -627,6 +648,7 @@ const [editGroupId, setEditGroupId] = useState(null);
 const [isSubmitting, setIsSubmitting] = useState(false);
 const [importantModalOpen, setImportantModalOpen] = useState(false);
 const [importantForm, setImportantForm] = useState({ id: null, date: '', owner: '', text: '' });
+useEffect(()=>{try{if((importantItems||[]).length===0&&!localStorage.getItem('important_seed_v1')){localStorage.setItem('important_seed_v1','1');crud.createImportantItem({date:'2026-03-05',owner:'方姿云',text:'第一期成果報告（工作項目：分配等等）',createdAt:new Date()});}}catch(e){}},[importantItems,crud]);
 const upcomingImportant = useMemo(() => {
   const now = new Date();
   const end = new Date(now); end.setMonth(end.getMonth()+2);
@@ -849,8 +871,8 @@ return (
 <div className="flex bg-white rounded border shadow-sm ml-2 text-xs">
 <button onClick={()=>setViewMode('month')} className={`px-3 py-1.5 ${viewMode==='month'?'bg-slate-800 text-white':'hover:bg-gray-50'}`}>月</button>
 <button onClick={()=>setViewMode('week')} className={`px-3 py-1.5 ${viewMode==='week'?'bg-slate-800 text-white':'hover:bg-gray-50'}`}>週</button></div></div>
-<button onClick={()=>setRotationModalOpen(true)} className="text-xs bg-white px-3 py-1.5 rounded border shadow-sm flex items-center gap-1 hover:bg-blue-50 text-blue-600 font-bold"><RefreshCw size={14}/> 輪序表</button>
-<button onClick={openImportantNew} className="text-xs bg-white px-3 py-1.5 rounded border shadow-sm flex items-center gap-1 hover:bg-amber-50 text-amber-700 font-bold"><Bell size={14}/> 重要事項</button></div>
+<button onClick={openImportantNew} className="text-xs bg-white px-3 py-1.5 rounded border shadow-sm flex items-center gap-1 hover:bg-amber-50 text-amber-700 font-bold"><Bell size={14}/> 重要事項</button>
+<button onClick={()=>setRotationModalOpen(true)} className="text-xs bg-white px-3 py-1.5 rounded border shadow-sm flex items-center gap-1 hover:bg-blue-50 text-blue-600 font-bold"><RefreshCw size={14}/> 輪序表</button></div>
 {upcomingImportant.length>0 && (
 <div className="px-4 py-2 border-b bg-white flex flex-col md:flex-row md:items-center gap-2">
 <div className="text-xs font-bold text-gray-600 flex items-center gap-1 shrink-0"><Bell size={14} className="text-amber-600"/> 公告重要事項（近兩個月）</div>
@@ -926,7 +948,60 @@ return (
 {editGroupId && (<button onClick={handleDeleteGroup} disabled={isSubmitting} className={`flex-1 bg-red-100 text-red-700 py-3 rounded-lg font-bold hover:bg-red-200 transition ${isSubmitting?'opacity-50 cursor-not-allowed':''}`}>刪除行程</button>)}
 <button onClick={handleModalSave} disabled={isSubmitting} className={`flex-1 bg-slate-800 text-white py-3 rounded-lg font-bold shadow transition flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-900'}`}>
 {isSubmitting ? <><RefreshCw className="animate-spin" size={18}/> 處理中...</> : <><CheckCircle size={18}/> {editGroupId ? '確認修改' : '儲存行程'}</>}</button></div></div></div>
-)}</div>);}
+)}
+{importantModalOpen && (
+<div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={()=>setImportantModalOpen(false)}>
+  <div className="bg-white w-full max-w-2xl rounded-xl shadow-xl border overflow-hidden" onClick={e=>e.stopPropagation()}>
+    <div className="p-4 border-b flex items-center justify-between">
+      <div className="font-extrabold text-gray-800 flex items-center gap-2"><Bell className="text-amber-600" size={18}/> 重要事項</div>
+      <button onClick={()=>setImportantModalOpen(false)} className="p-2 rounded hover:bg-gray-100"><X size={18}/></button>
+    </div>
+    <div className="p-4 space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div>
+          <div className="text-xs font-bold text-gray-500 mb-1">日期</div>
+          <input type="date" className="w-full border p-2 rounded text-sm" value={importantForm.date} onChange={e=>setImportantForm({...importantForm, date:e.target.value})}/>
+        </div>
+        <div>
+          <div className="text-xs font-bold text-gray-500 mb-1">主責人</div>
+          <input className="w-full border p-2 rounded text-sm" placeholder="例如：方姿云" value={importantForm.owner} onChange={e=>setImportantForm({...importantForm, owner:e.target.value})}/>
+        </div>
+        <div className="flex items-end gap-2">
+          <button onClick={saveImportant} className="flex-1 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded font-bold text-sm shadow">儲存</button>
+          {importantForm.id && <button onClick={()=>{deleteImportant(importantForm.id); setImportantModalOpen(false);}} className="bg-red-50 hover:bg-red-100 text-red-700 px-4 py-2 rounded font-bold text-sm border border-red-200">刪除</button>}
+        </div>
+      </div>
+      <div>
+        <div className="text-xs font-bold text-gray-500 mb-1">內容</div>
+        <textarea className="w-full border p-2 rounded text-sm min-h-[90px]" placeholder="請輸入重要事項內容" value={importantForm.text} onChange={e=>setImportantForm({...importantForm, text:e.target.value})}/>
+      </div>
+
+      <div className="pt-2 border-t">
+        <div className="flex items-center justify-between mb-2">
+          <div className="text-xs font-extrabold text-gray-700">已建立清單</div>
+          <button onClick={openImportantNew} className="text-xs font-bold px-3 py-1.5 rounded border bg-amber-50 text-amber-700 hover:bg-amber-100 flex items-center gap-1"><Plus size={14}/> 新增</button>
+        </div>
+        <div className="max-h-[260px] overflow-auto divide-y">
+          {(importantItems||[]).slice().sort((a,b)=>new Date(a.date)-new Date(b.date)).map(it=>(
+            <div key={it.id} className="py-2 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-sm font-bold text-gray-800">{it.date} <span className="text-gray-500 font-medium">({it.owner||'未填'})</span></div>
+                <div className="text-xs text-gray-600 break-words">{it.text}</div>
+              </div>
+              <div className="shrink-0 flex gap-2">
+                <button onClick={()=>openImportantEdit(it)} className="px-3 py-1.5 rounded border text-xs font-bold hover:bg-gray-50 flex items-center gap-1"><Edit2 size={14}/> 修改</button>
+                <button onClick={()=>deleteImportant(it.id)} className="px-3 py-1.5 rounded border border-red-200 bg-red-50 text-red-700 text-xs font-bold hover:bg-red-100 flex items-center gap-1"><Trash2 size={14}/> 刪除</button>
+              </div>
+            </div>
+          ))}
+          {(importantItems||[]).length===0 && <div className="py-6 text-center text-sm text-gray-400">尚無重要事項</div>}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+)}
+</div>);}
 function RotationModal({ open, onClose, rules, onUpdateRules, rotationData, rotationStats }) {
 const [editMode, setEditMode] = useState(null);
 const [tempOrder, setTempOrder] = useState([]);
@@ -937,7 +1012,7 @@ const startEdit = (rule) => { setEditMode(rule.id); setTempOrder([...rule.order]
 const moveItem = (index, direction) => { const newOrder = [...tempOrder]; const targetIndex = index + direction; if(targetIndex >= 0 && targetIndex < newOrder.length) { [newOrder[index], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[index]]; setTempOrder(newOrder); } }
 const saveOrder = () => { if(!showPass) { setShowPass(true); return; } if(password !== '0000') { alert('密碼錯誤'); return; } const newRules = rules.map(r => r.id === editMode ? {...r, order: tempOrder} : r); onUpdateRules(newRules); setEditMode(null); alert('順序已更新'); }
 return (<div className="fixed inset-0 bg-black/60 z-[70] flex items-center justify-center p-4 animate-in fade-in" onClick={onClose}><div className="bg-white rounded-xl w-full max-w-lg shadow-2xl p-6" onClick={e=>e.stopPropagation()}><div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg flex items-center gap-2"><RefreshCw/> 智慧輪序參考表</h3><button onClick={onClose}><X/></button></div><div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">{rotationData.map(r => (<div key={r.id} className="bg-gray-50 p-3 rounded-lg border"><div className="flex justify-between font-bold mb-2 items-center"><div className="flex flex-col"><span>{r.name}</span><span className="text-[10px] font-normal text-gray-500">上次: {r.lastDate || '無'}</span></div>{editMode !== r.id ? (<button onClick={()=>startEdit(r)} className="text-gray-400 hover:text-blue-600"><Edit2 size={14}/></button>) : (<div className="flex gap-2">{showPass ? (<input autoFocus className="w-16 text-xs border rounded p-1" placeholder="密碼" type="password" value={password} onChange={e=>setPassword(e.target.value)} />) : null}<button onClick={saveOrder} className="text-green-600 text-xs font-bold">儲存</button><button onClick={()=>setEditMode(null)} className="text-gray-400 text-xs">取消</button></div>)}</div><div className="flex flex-wrap gap-1">{(editMode === r.id ? tempOrder : r.order).map((p, idx) => { const count = rotationStats[r.id] && rotationStats[r.id][p] ? rotationStats[r.id][p] : 0; return (<div key={p} className={`px-2 py-1 text-xs rounded text-center relative group ${p===r.nextPerson && editMode !== r.id ? 'bg-orange-100 text-orange-700 font-bold ring-2 ring-orange-200' : 'bg-white border text-gray-500'}`}>{p}<div className="text-[9px] text-gray-400 mt-0.5">(本年: {count})</div>{editMode === r.id && (<div className="absolute -top-2 -right-1 hidden group-hover:flex bg-white shadow border rounded"><button onClick={()=>moveItem(idx, -1)} className="p-0.5 hover:text-blue-500"><ChevronLeft size={10}/></button><button onClick={()=>moveItem(idx, 1)} className="p-0.5 hover:text-blue-500"><ChevronRight size={10}/></button></div>)}</div>); })}</div></div>))}</div></div></div>);}
-function PersonalScheduleView({ user, events, leaves, settings, leaveTypes, crud, users }) {
+function PersonalScheduleView({ user, events, leaves, settings, leaveTypes, crud, users, setView }) {
 const [activeTab, setActiveTab] = useState('mine'); // 控制第一區、第二區
 const [month, setMonth] = useState(getLocalDateString(new Date()).slice(0, 7));
 const [leaveFilter, setLeaveFilter] = useState('all');
@@ -964,7 +1039,9 @@ else if (!myWork.length && isOfficialLeave) status = '異常公出';
 else if (myLeave) {
 if (myLeave.status === 'pending') status = '待職代審查中';
 else if (myLeave.status === 'deputy_signed') status = '組長審查中';
-else if (myLeave.status === 'approved') status = '已核准';}
+else if (myLeave.status === 'approved') status = '已核准';
+else if (myLeave.status === 'rejected') status = '退回/未通過';
+else if (myLeave.status === 'recalled') status = '已撤回';}
 else if (myWork.length > 0) status = '內勤';
 else status = '無行程';
 if (myWork.length > 0 || myLeave) { data.push({ name: user.name, date: dateStr, work: myWork, leave: myLeave, status }); }}
@@ -1044,9 +1121,16 @@ link.href = encodeURI("data:text/csv;charset=utf-8,"+csv);
 link.download = `${user.name}_${month}_排班表.csv`;
 link.click();
 };
-const handleRecallLeave = async (leaveId) => {
-if(confirm("確定要撤回/刪除這筆尚未核准的請假單嗎？\n(撤回後，若日曆有外勤排班，系統會自動在「請假申請」頁面再次提醒您重新送單！)")) {
-try { await crud.deleteLeave(leaveId); alert("假單已成功撤回！"); } catch (e) { alert("撤回失敗: " + e.message); }}
+const handleRecallLeave = async (leaveId, currentStatus) => {
+const reason = prompt('撤回原因（可留空）：','') || '';
+if(!confirm(`確定要撤回這筆請假單嗎？
+(狀態：${currentStatus})
+
+撤回後將標記為「已撤回」，並保留紀錄。`)) return;
+try {
+  await crud.updateLeave(leaveId, { status: 'recalled', recallReason: reason, recalledAt: new Date() });
+  alert('假單已成功撤回！');
+} catch (e) { alert('撤回失敗: ' + e.message); }
 };
 return (
 <div className="max-w-6xl mx-auto space-y-6">
@@ -1071,7 +1155,7 @@ return (
 <tr><th className="p-4 w-10 text-center"><input type="checkbox" checked={isAllSelected} onChange={toggleAll} className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer" /></th><th className="p-4 font-semibold text-sm whitespace-nowrap">姓名</th><th className="p-4 font-semibold text-sm whitespace-nowrap">日期</th><th className="p-4 font-semibold text-sm whitespace-nowrap">時間</th><th className="p-4 font-semibold text-sm">假別</th><th className="p-4 font-semibold text-sm">時數</th><th className="p-4 font-semibold text-sm">職代</th><th className="p-4 font-semibold text-sm">排班內容</th><th className="p-4 font-semibold text-sm">事由</th><th className="p-4 font-semibold text-sm">備註</th><th className="p-4 font-semibold text-sm">狀態</th><th className="p-4 font-semibold text-sm text-center">操作</th></tr></thead>
 <tbody>
 {filteredRows.map((r) => {
-const canRecall = r.rawLeave && (r.rawLeave.status === 'pending' || r.rawLeave.status === 'rejected');
+const canRecall = r.rawLeave && ['pending','deputy_signed','approved'].includes(r.rawLeave.status);
 const deputyName = r.rawLeave?.deputyId ? (users.find(u => u.docId === r.rawLeave.deputyId || u.uid === r.rawLeave.deputyId)?.name || '未知') : '-';
 const isOfficial = r.leaveType === '出差' || r.leaveType === '公出' || r.leaveType === '公假';
 return (
@@ -1095,27 +1179,57 @@ return (
 <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold leading-tight ${r.status === '缺公務單' ? 'bg-red-100 text-red-700' : r.status === '異常公出' || ['假別不符', '已駁回', '已撤銷'].includes(r.status) ? 'bg-amber-100 text-amber-700' : ['待職代審查中', '組長審查中'].includes(r.status) ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
 {r.status === '異常公出' ? '異常公出 (請確認日曆人員)' : r.status}</span></td>
 <td className="p-4 text-center">
-{canRecall && (<button onClick={() => handleRecallLeave(r.rawLeave.id)} className="text-red-600 hover:text-white border border-red-200 bg-red-50 hover:bg-red-500 px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1 mx-auto shadow-sm" title="撤回尚未核准的單據"><Undo size={14}/> 撤回</button>)}</td></tr>)
+{canRecall && (<button onClick={() => handleRecallLeave(r.rawLeave.id, r.rawLeave.status)} className="text-red-600 hover:text-white border border-red-200 bg-red-50 hover:bg-red-500 px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1 mx-auto shadow-sm" title="撤回此請假單(已核准亦可)"><Undo size={14}/> 撤回</button>)}</td></tr>)
 })}
 {filteredRows.length === 0 && <tr><td colSpan="12" className="p-8 text-center text-gray-400">尚無符合條件的出勤資料</td></tr>}</tbody></table></div>
 ) : (
 <div className="bg-white rounded-lg shadow-sm overflow-hidden animate-in fade-in border border-gray-200">
 <table className="w-full text-left">
 <thead className="bg-slate-50 border-b border-slate-200 text-slate-600">
-<tr><th className="p-4 font-semibold text-sm w-24">申請人</th><th className="p-4 font-semibold text-sm w-48">日期/時間</th><th className="p-4 font-semibold text-sm w-32">假別</th><th className="p-4 font-semibold text-sm w-20">時數</th><th className="p-4 font-semibold text-sm">事由</th><th className="p-4 font-semibold text-sm w-32">單據狀態</th></tr></thead>
+<tr>
+<th className="p-4 font-semibold text-sm whitespace-nowrap">申請人</th>
+<th className="p-4 font-semibold text-sm whitespace-nowrap">職代</th>
+<th className="p-4 font-semibold text-sm whitespace-nowrap">日期</th>
+<th className="p-4 font-semibold text-sm whitespace-nowrap">時間</th>
+<th className="p-4 font-semibold text-sm whitespace-nowrap">假別</th>
+<th className="p-4 font-semibold text-sm whitespace-nowrap">時數</th>
+<th className="p-4 font-semibold text-sm whitespace-nowrap">排班內容</th>
+<th className="p-4 font-semibold text-sm whitespace-nowrap">事由</th>
+<th className="p-4 font-semibold text-sm whitespace-nowrap">備註</th>
+<th className="p-4 font-semibold text-sm whitespace-nowrap">狀態</th>
+<th className="p-4 font-semibold text-sm whitespace-nowrap text-center">操作</th>
+<th className="p-4 font-semibold text-sm whitespace-nowrap text-center">審核</th>
+</tr></thead>
 <tbody>
-{deputyLeaves.length > 0 ? deputyLeaves.map(l => (
+{deputyLeaves.length > 0 ? deputyLeaves.map(l => {
+const sD = (l.start||'').split('T')[0]||'';
+const sT = (l.start||'').split('T')[1]||'';
+const eD = (l.end||'').split('T')[0]||'';
+const eT = (l.end||'').split('T')[1]||'';
+const dateText = sD && eD && sD!==eD ? `${sD}~${eD}` : (sD || eD || '-');
+const timeText = sT && eT ? `${sT}~${eT}` : (sT || eT || '整天');
+const statusText = l.status === 'pending' ? '待職代審查中' : l.status === 'deputy_signed' ? '組長審查中' : l.status === 'rejected' ? '退回/未通過' : l.status === 'approved' ? '已核准' : l.status === 'recalled' ? '已撤回' : l.status;
+const badge = l.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : l.status === 'deputy_signed' ? 'bg-blue-100 text-blue-700' : l.status === 'rejected' ? 'bg-red-100 text-red-700' : l.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-700';
+return (
 <tr key={l.id} className="border-b border-gray-100 last:border-0 hover:bg-slate-50 transition-colors">
 <td className="p-4 text-sm font-bold text-gray-800">{l.requesterName}</td>
-<td className="p-4 text-sm text-gray-600 whitespace-nowrap">{l.start.replace('T', ' ')} <br/><span className="text-gray-400">至</span> {l.end.replace('T', ' ')}</td>
-<td className="p-4">
-<span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-blue-100 text-blue-700">{l.type}</span></td>
-<td className="p-4 text-sm font-medium text-gray-700">{l.hours} 小時</td>
-<td className="p-4 text-sm text-gray-600">{l.reason}</td>
-<td className="p-4">
-<span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${l.status === 'pending' ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
-{l.status === 'pending' ? '等待您同意' : '已簽核'}</span></td></tr>
-)) : <tr><td colSpan="6" className="p-8 text-center text-gray-400">目前沒有需要您擔任職代的假單。</td></tr>}</tbody></table></div>
+<td className="p-4 text-sm text-gray-700 whitespace-nowrap">{user.name}</td>
+<td className="p-4 text-sm text-gray-600 whitespace-nowrap">{dateText}</td>
+<td className="p-4 text-sm text-gray-600 whitespace-nowrap">{timeText}</td>
+<td className="p-4"><span className="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold bg-blue-100 text-blue-700">{l.type}</span></td>
+<td className="p-4 text-sm font-medium text-gray-700 whitespace-nowrap">{l.hours} 小時</td>
+<td className="p-4 text-sm text-gray-500">-</td>
+<td className="p-4 text-sm text-gray-600">{l.reason || '-'}</td>
+<td className="p-4 text-sm text-gray-600">{l.note || '-'}</td>
+<td className="p-4"><span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${badge}`}>{statusText}</span></td>
+<td className="p-4 text-center text-sm text-gray-400">-</td>
+<td className="p-4 text-center">
+<button onClick={() => setView && setView('approval')} disabled={l.status!=='pending'} className={`px-3 py-1.5 rounded-md text-xs font-bold shadow-sm border ${l.status==='pending' ? 'bg-indigo-600 text-white hover:bg-indigo-700 border-indigo-600' : 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'}`}>前往審核</button>
+</td>
+</tr>
+);
+}) : <tr><td colSpan="12" className="p-8 text-center text-gray-400">目前沒有需要您擔任職代的假單。</td></tr>}
+</tbody>></table></div>
 )}</div>);}
 const PendingLeaveCard = ({ task, leaveTypes, deputies, onSubmit, isSubmitting }) => {
 const officialTypes = leaveTypes.filter(t => t.category === 'official');
@@ -1302,7 +1416,7 @@ try { await crud.deleteLeave(id); } catch(e) { alert("刪除失敗"); }
 setProcessingId(null);}
 };
 const filteredAllLeaves = useMemo(()=>{
-const byUser=l=>allFilterUser==='all'||l.requesterId===allFilterUser||l.requesterId===users.find(u=>u.docId===allFilterUser)?.uid||l.requesterName===users.find(u=>u.docId===allFilterUser)?.name;
+const byUser=l=>{if(allFilterUser==='all') return true;const u=users.find(x=>x.docId===allFilterUser||x.uid===allFilterUser||((x.email||'').toLowerCase()===allFilterUser));if(!u) return l.requesterId===allFilterUser||l.requesterName===allFilterUser;const ids=[u.docId,u.uid,(u.email||'').toLowerCase()].filter(Boolean);return ids.includes(l.requesterId)||l.requesterName===u.name;};
 const byType=l=>allFilterType==='all'||l.type===allFilterType;
 const byStatus=l=>allFilterStatus==='all'||l.status===allFilterStatus;
 const mk=l=> (l.start||'').slice(0,7);
