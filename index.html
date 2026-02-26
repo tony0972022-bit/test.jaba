@@ -131,10 +131,54 @@ const fmtISO = (s) => {
 // -----------------------------------------------------------
 // --- Global Constants ---
 const WEATHER_LOCATIONS = [
-{ location: '高雄', icon: <Sun className="text-orange-500" size={24}/>, temp: '29°C', wind: '微風', rain: '10%', uv: '高' },
-{ location: '屏東', icon: <Sun className="text-yellow-500" size={24}/>, temp: '30°C', wind: '弱風', rain: '0%', uv: '過量' },
-{ location: '台東', icon: <CloudRain className="text-blue-400" size={24}/>, temp: '26°C', wind: '強風', rain: '80%', uv: '低' },
-{ location: '澎湖', icon: <Sun className="text-orange-400" size={24}/>, temp: '27°C', wind: '陣風', rain: '20%', uv: '中' },];
+  { location: '高雄', lat: 22.6273, lon: 120.3014 },
+  { location: '屏東', lat: 22.6697, lon: 120.4879 },
+  { location: '台東', lat: 22.7583, lon: 121.1444 },
+  { location: '澎湖', lat: 23.5655, lon: 119.5660 },
+];
+
+// 取得即時天氣（Open-Meteo，免 API key），每日更新並快取於 localStorage
+async function fetchWeatherForLocations() {
+  const todayKey = `weather_cache_${getLocalDateString()}`;
+  try {
+    const cached = localStorage.getItem(todayKey);
+    if (cached) return JSON.parse(cached);
+  } catch {}
+
+  const results = [];
+  for (const loc of WEATHER_LOCATIONS) {
+    try {
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&current=temperature_2m,wind_speed_10m&daily=precipitation_probability_max,uv_index_max&timezone=Asia%2FTaipei`;
+      const r = await fetch(url);
+      const j = await r.json();
+      const temp = j?.current?.temperature_2m;
+      const wind = j?.current?.wind_speed_10m;
+      const rain = j?.daily?.precipitation_probability_max?.[0];
+      const uv = j?.daily?.uv_index_max?.[0];
+
+      results.push({
+        location: loc.location,
+        temp: (typeof temp === 'number') ? `${Math.round(temp)}°C` : '—',
+        wind: (typeof wind === 'number') ? `${Math.round(wind)} km/h` : '—',
+        rain: (typeof rain === 'number') ? `${Math.round(rain)}%` : '—',
+        uv: (typeof uv === 'number') ? `${Math.round(uv)}` : '—',
+        _raw: { temp, wind, rain, uv }
+      });
+    } catch (e) {
+      results.push({ location: loc.location, temp:'—', wind:'—', rain:'—', uv:'—', _raw:{} });
+    }
+  }
+
+  try { localStorage.setItem(todayKey, JSON.stringify(results)); } catch {}
+  return results;
+}
+
+const getWeatherIcon = (rainPercent) => {
+  const r = Number(rainPercent);
+  if (!isNaN(r) && r >= 50) return <CloudRain className="text-blue-400" size={24}/>;
+  return <Sun className="text-orange-500" size={24}/>;
+};
+
 const TAIWAN_HOLIDAYS_2026 = {
 "2026-01-01": "元旦", "2026-02-16": "除夕", "2026-02-17": "春節",
 "2026-02-18": "春節", "2026-02-19": "春節", "2026-02-20": "春節", "2026-02-28": "二二八",
@@ -263,6 +307,7 @@ const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
 const [sidebarTheme, setSidebarTheme] = useState('light');
 const [isAdminMenuOpen, setIsAdminMenuOpen] = useState(false);
+const [unassignedToast, setUnassignedToast] = useState({ open: false, count: 0, items: [] });
 const [settings, setSettings] = useState({
 areaColors: DEFAULT_AREA_COLORS,
 customHolidays: DEFAULT_SPECIAL_HOLIDAYS
@@ -507,6 +552,40 @@ if (loading) return (
 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
 <div className="text-lg font-medium">連線至雲端資料庫...</div></div>);
 if (!user || !userData) return <LoginScreen auth={auth} />;
+
+// --- 待派員通知（僅組長/管理員）：日曆中有「只有工作項目但未派員」的行程 ---
+const unassignedInfo = useMemo(() => {
+  const groups = {};
+  (calendarEvents || []).forEach(e => {
+    if (!e || !e.groupId) return;
+    if (!groups[e.groupId]) groups[e.groupId] = { tag: null, people: [] };
+    if (e.type === 'tag') groups[e.groupId].tag = e;
+    if (e.type === 'person') groups[e.groupId].people.push(e);
+  });
+
+  const today = getLocalDateString(new Date());
+  const items = Object.values(groups)
+    .filter(g => g.tag && (!g.people || g.people.length === 0))
+    .filter(g => (g.tag.date || '') >= today)
+    .sort((a,b) => String(a.tag.date||'').localeCompare(String(b.tag.date||'')))
+    .slice(0, 10)
+    .map(g => ({ date: g.tag.date, item: g.tag.item, slot: g.tag.slot || 'all_day', groupId: g.tag.groupId }));
+
+  return { count: Object.values(groups).filter(g => g.tag && (!g.people || g.people.length === 0) && (g.tag.date || '') >= today).length, items };
+}, [calendarEvents]);
+
+useEffect(() => {
+  if (!userData) return;
+  if (!(userData.role === 'leader' || userData.role === 'admin')) return;
+  const c = unassignedInfo.count || 0;
+  const key = `unassigned_toast_${getLocalDateString(new Date())}`;
+  const seen = localStorage.getItem(key) === '1';
+  if (c > 0 && !seen) {
+    setUnassignedToast({ open: true, count: c, items: unassignedInfo.items || [] });
+    try { localStorage.setItem(key, '1'); } catch {}
+  }
+}, [userData, unassignedInfo]);
+
 const pendingApprovalCount = (userData.role === 'leader' || userData.role === 'admin')
 ? leaves.filter(l => l.status === 'deputy_signed').length
 : 0;
@@ -600,6 +679,33 @@ ${isDesktopCollapsed ? 'md:w-20' : 'md:w-64'}
 <LogOut size={18} />
 {!isDesktopCollapsed && <span>登出</span>}</button></div></div>
 <div className="flex-1 flex flex-col overflow-hidden w-full">
+{unassignedToast.open && (userData.role==='leader' || userData.role==='admin') && (
+  <div className="fixed bottom-4 right-4 z-[60] max-w-sm w-[92vw] md:w-[360px]">
+    <div className="bg-white border border-amber-200 shadow-lg rounded-2xl p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-2">
+          <div className="mt-0.5"><AlertTriangle className="text-amber-500" size={20}/></div>
+          <div>
+            <div className="font-bold text-gray-800">待派員提醒</div>
+            <div className="text-sm text-gray-600">排班日曆目前有 <span className="font-black text-amber-600">{unassignedToast.count}</span> 筆待派員。</div>
+          </div>
+        </div>
+        <button className="text-gray-400 hover:text-gray-700" onClick={()=>setUnassignedToast(t=>({ ...t, open:false }))}><X size={18}/></button>
+      </div>
+      {(unassignedToast.items||[]).length>0 && (
+        <div className="mt-3 space-y-2 max-h-40 overflow-auto pr-1">
+          {unassignedToast.items.map((it,idx)=>(
+            <div key={idx} className="text-xs bg-amber-50 border border-amber-100 rounded-lg px-2 py-1 flex items-center justify-between gap-2">
+              <span className="text-gray-700 truncate">{it.date}・{it.item}（{it.slot==='morning'?'上午':(it.slot==='afternoon'?'下午':'整天')}）</span>
+              <button className="text-amber-700 font-bold hover:underline whitespace-nowrap" onClick={()=>{ setView('calendar'); setUnassignedToast(t=>({ ...t, open:false })); }}>前往派員</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+)}
+
 <div className="md:hidden bg-white p-4 shadow-sm flex items-center justify-between border-b">
 <button onClick={()=>setIsSidebarOpen(true)} className="text-gray-600"><Menu size={24}/></button>
 <span className="font-bold text-gray-800">差勤排班系統</span>
@@ -619,6 +725,13 @@ ${isDesktopCollapsed ? 'md:w-20' : 'md:w-64'}
 // --- Sub-Components ---
 function Dashboard({ user, leaves, calendarEvents, setView, leaveTypes }) {
 const [weeksToShow, setWeeksToShow] = useState(1);
+const [weatherData, setWeatherData] = useState([]);
+useEffect(() => {
+  let alive = true;
+  fetchWeatherForLocations().then(d => { if (alive) setWeatherData(d || []); });
+  return () => { alive = false; };
+}, []);
+const weatherList = (weatherData && weatherData.length) ? weatherData : WEATHER_LOCATIONS.map(l => ({ location: l.location, temp: '—', wind: '—', rain: '—', uv: '—', _raw: {} }));
 const today = new Date();
 const weekDays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
 const todayStr = getLocalDateString(today);
@@ -676,11 +789,11 @@ return (
 <h2 className="text-2xl font-bold text-gray-800">{user.name}，{greeting} {greetingIcon}</h2>
 <p className="text-sm text-gray-500 font-medium">{today.getFullYear()}/{today.getMonth()+1}/{today.getDate()} ({weekDays[today.getDay()]})</p></div>
 <div className="flex gap-3 overflow-x-auto w-full md:w-auto pb-2">
-{WEATHER_LOCATIONS.map((w,i)=>(
+{weatherList.map((w,i)=>(
 <div key={i} className="min-w-[110px] bg-gray-50 p-3 rounded-xl flex flex-col items-center border border-gray-100 shadow-sm">
 <div className="flex items-center gap-2 mb-1">
 <span className="text-sm font-bold text-gray-700">{w.location}</span>
-{w.icon}</div>
+{getWeatherIcon(w?._raw?.rain ?? parseFloat(String(w?.rain||'').replace('%','')))}</div>
 <span className="text-xl font-black text-gray-800 mb-1">{w.temp}</span>
 <div className="flex flex-wrap justify-center gap-1 text-[10px] font-medium text-gray-600">
 <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded" title="降雨機率">☔ {w.rain}</span>
