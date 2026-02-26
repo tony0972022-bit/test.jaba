@@ -434,7 +434,7 @@ const pendingApprovalCount = (userData.role === 'leader' || userData.role === 'a
 ? leaves.filter(l => l.status === 'deputy_signed').length
 : 0;
 const myPendingDeputy = leaves.filter(l => (l.deputyId === userData.uid || l.deputyId === (userData.email || '').toLowerCase()) && l.status === 'pending').length;
-const totalAlert = pendingApprovalCount \+ myPendingDeputy;
+const totalAlert = pendingApprovalCount + myPendingDeputy;
 const approvalMenuCount = (userData.role === 'leader' || userData.role === 'admin') ? totalAlert : myPendingDeputy;
 const isLight = sidebarTheme === 'light';
 const sidebarBg = isLight ? 'bg-white border-r border-gray-200 text-gray-800' : 'bg-slate-800 text-gray-100 border-r border-slate-700';
