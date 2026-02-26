@@ -502,7 +502,7 @@ ${isDesktopCollapsed ? 'md:w-20' : 'md:w-64'}
 {id:'statistics', icon:<PieChart size={20}/>, label:'假別統計'},
 {id:'attendance', icon:<Clock size={20}/>, label:'打卡紀錄'},
 {id:'profile', icon:<UserCog size={20}/>, label:'個人設定'}
-]].map(item => (
+].map(item => (
 <button key={item.id} onClick={() => { setView(item.id); setIsSidebarOpen(false); }} className={`relative w-full flex items-center px-4 py-3 transition mb-1 ${isDesktopCollapsed ? 'justify-center' : 'justify-between'} ${view===item.id ? sidebarActive : `text-gray-500 ${sidebarHover} ${!isLight && 'text-slate-400 hover:text-white'}`}`} title={isDesktopCollapsed ? item.label : ""}>
 <div className={`flex items-center gap-3 ${isDesktopCollapsed ? '' : 'w-full'}`}>
 <div className="shrink-0">{item.icon}</div>
