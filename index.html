@@ -131,6 +131,23 @@ const getLocalDateString = (d = new Date()) => {
 const tzOffset = d.getTimezoneOffset() * 60000;
 return new Date(d.getTime() - tzOffset).toISOString().split('T')[0];
 };
+
+// --- Helper: Effective leave hours for stats (跨天以 8 小時/天計) ---
+// 用於假別統計等跨日計算：若跨天，直接以「天數 * 8 小時」計算，避免時段格式差異造成誤差
+const getEffectiveLeaveHours = (l) => {
+  try {
+    const s = (l.start || '').split('T')[0];
+    const e = (l.end || '').split('T')[0];
+    if (!s || !e) return Number(l.hours || 0);
+    if (s === e) return Number(l.hours || 0);
+    const sd = new Date(s + 'T00:00');
+    const ed = new Date(e + 'T00:00');
+    const days = Math.floor((ed - sd) / 86400000) + 1;
+    return Math.max(0, days) * 8;
+  } catch {
+    return Number(l.hours || 0);
+  }
+};
 // --- Helper Component: User Avatar ---
 const UserAvatar = ({ user, size = "w-8 h-8", textSize = "text-xs", className = "" }) => {
 if (!user) return <div className={`${size} rounded-full bg-gray-200 ${className}`}></div>;
@@ -648,20 +665,8 @@ const [selUsers, setSelUsers] = useState([]);
 const [editGroupId, setEditGroupId] = useState(null);
 const [isSubmitting, setIsSubmitting] = useState(false);
 const [importantModalOpen, setImportantModalOpen] = useState(false);
-const [importantForm, setImportantForm] = useState({ id: null, date: '', owner: '', text: '' });
-// --- Helper: Effective leave hours for stats (跨天以 8 小時/天計) ---
-const getEffectiveLeaveHours = (l) => {
-try {
-const s = (l.start || '').split('T')[0];
-const e = (l.end || '').split('T')[0];
-if (!s || !e) return Number(l.hours || 0);
-if (s === e) return Number(l.hours || 0);
-const sd = new Date(s + 'T00:00');
-const ed = new Date(e + 'T00:00');
-const days = Math.floor((ed - sd) / 86400000) + 1;
-return Math.max(0, days) * 8;
-} catch { return Number(l.hours || 0); }
-};
+const [importantForm, setImportantForm] = u
+seState({ id: null, date: '', owner: '', text: '' });
 useEffect(()=>{try{if((importantItems||[]).length===0&&!localStorage.getItem('important_seed_v1')){localStorage.setItem('important_seed_v1','1');crud.createImportantItem({date:'2026-03-05',owner:'方姿云',text:'第一期成果報告（工作項目：分配等等）',createdAt:new Date()});}}catch(e){}},[importantItems,crud]);
 const upcomingImportant = useMemo(() => {
   const now = new Date();
