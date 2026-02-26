@@ -607,7 +607,7 @@ ${isDesktopCollapsed ? 'md:w-20' : 'md:w-64'}
 <main className="flex-1 overflow-y-auto p-2 md:p-4 bg-gray-100 transition-all">
 {view === 'dashboard' && <Dashboard user={userData} leaves={leaves} calendarEvents={calendarEvents} setView={setView} leaveTypes={leaveTypes} />}
 {view === 'calendar' && <CalendarView user={userData} users={usersList} events={calendarEvents} leaves={leaves} importantItems={importantItems} crud={crud} tags={{workTags, areaTags}} settings={settings} rotationRules={rotationRules} onUpdateRotationRules={handleUpdateRotationRules} />}
-{view === 'leave' && <LeaveForm user={userData} users={usersList} leaves={leaves} events={calendarEvents} crud={crud} leaveTypes={leaveTypes} />}
+{view === 'leave' && <LeaveForm user={userData} users={usersList} leaves={leaves} events={calendarEvents} crud={crud} leaveTypes={leaveTypes} setView={setView} />}
 {view === 'approval' && <ApprovalView currentUser={userData} leaves={leaves} crud={crud} users={usersList} />}
 {view === 'personal' && <PersonalScheduleView user={userData} events={calendarEvents} leaves={leaves} settings={settings} leaveTypes={leaveTypes} crud={crud} users={usersList} setView={setView} />}
 {view === 'statistics' && <StatisticsView users={usersList} leaves={leaves} currentUser={userData} onUpdateAnyProfile={handleUpdateAnyUserProfile} crud={crud} />}
@@ -742,6 +742,9 @@ const [selAreas, setSelAreas] = useState([]); // 修改：改為陣列支援複�
 const [selUsers, setSelUsers] = useState([]);
 const [editGroupId, setEditGroupId] = useState(null);
 const [isSubmitting, setIsSubmitting] = useState(false);
+const [openBlock1, setOpenBlock1] = useState(true);
+const [openBlock2, setOpenBlock2] = useState(true);
+const block2Ref = useRef(null);
 const [importantModalOpen, setImportantModalOpen] = useState(false);
 const [importantForm, setImportantForm] = useState({ id: null, date: '', owner: '', text: '' });
 useEffect(()=>{try{if((importantItems||[]).length===0&&!localStorage.getItem('important_seed_v1')){localStorage.setItem('important_seed_v1','1');crud.createImportantItem({date:'2026-03-05',owner:'方姿云',text:'第一期成果報告（工作項目：分配等等）',createdAt:new Date()});}}catch(e){}},[importantItems,crud]);
@@ -1329,12 +1332,13 @@ return (
 )}</div>);}
 const PendingLeaveCard = ({ task, leaveTypes, deputies, onSubmit, isSubmitting }) => {
 const officialTypes = leaveTypes.filter(t => t.category === 'official');
+const overtimeTypeName = officialTypes.find(t => (t.name||'').includes('加班'))?.name || '加班';
 const [type, setType] = useState(officialTypes.length > 0 ? officialTypes[0].name : '');
 const [deputyId, setDeputyId] = useState('');
 const selectedTypeDesc = officialTypes.find(t => t.name === type)?.desc || '';
 const handleSend = () => { if(!deputyId) { alert("請選擇職務代理人"); return; } onSubmit({ type, start: task.suggestedStart, end: task.suggestedEnd, reason: task.reason, deputyId, hours: task.slot === 'all_day' ? 8 : 4 }); }
 return (<div className="bg-white p-4 rounded-xl border border-indigo-100 shadow-sm space-y-3"><div className="flex flex-col md:flex-row justify-between md:items-center border-b border-gray-100 pb-3 gap-2"><div><div className="font-bold text-gray-800 flex items-center gap-2"><Calendar size={16} className="text-indigo-500"/>{task.date} <span className="text-indigo-600">{task.item}</span> {task.area && `(${task.area})`}</div><div className="text-xs text-gray-500 mt-1 flex gap-3"><span><span className="font-bold text-gray-600">時段：</span>{task.slot === 'morning' ? '上午' : task.slot === 'afternoon' ? '下午' : '整天'} ({task.suggestedStart.split('T')[1]} ~ {task.suggestedEnd.split('T')[1]})</span><span><span className="font-bold text-gray-600">自動匯入事由：</span>{task.reason}</span></div></div></div><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><div><label className="text-xs font-bold text-gray-500 block mb-1">確認假別 (自動篩選公務假別)</label><select className="w-full border border-gray-300 p-2 rounded bg-gray-50 focus:bg-white text-sm" value={type} onChange={e=>setType(e.target.value)}>{officialTypes.map(t=><option key={t.id} value={t.name}>{t.name}</option>)}</select>{selectedTypeDesc && <div className="text-[10px] text-indigo-600 mt-1 pl-1">{selectedTypeDesc}</div>}</div><div><label className="text-xs font-bold text-gray-500 block mb-1">請選擇職務代理人 <span className="text-red-500">*</span></label><select className="w-full border border-indigo-300 p-2 rounded bg-white shadow-inner text-sm focus:ring-2 focus:ring-indigo-200 outline-none" value={deputyId} onChange={e=>setDeputyId(e.target.value)}><option value="">-- 點此選擇職代 --</option>{deputies.map(u=><option key={u.docId} value={u.docId}>{u.name}</option>)}</select></div></div><div className="pt-2 text-right"><button onClick={handleSend} disabled={isSubmitting} className="w-full md:w-auto bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-md transition disabled:opacity-50 flex justify-center items-center gap-2 ml-auto">{isSubmitting ? <><Loader2 className="animate-spin" size={16}/> 傳送中...</> : <><Check size={16}/> 確認送出此差單</>}</button></div></div>)}
-function LeaveForm({ user, users, leaves, events, crud, leaveTypes }) {
+function LeaveForm({ user, users, leaves, events, crud, leaveTypes, setView }) {
 const defaultPersonalType = leaveTypes.find(t => t.category === 'personal')?.name || '';
 const [form, setForm] = useState({ type: defaultPersonalType, start:'', end:'', reason:'', deputyId:'' });
 const [hours, setHours] = useState(0);
@@ -1514,30 +1518,172 @@ setSlotType('all_day');
 const currentDate = inputMode === 'slot' ? slotDate : form.start?.split('T')[0];
 const busyIds = leaves.filter(l=>l.status!=='rejected' && l.status!=='withdrawn' && currentDate && l.start.startsWith(currentDate)).map(l=>l.requesterName);
 const deputies = users.filter(u=>u.name!==user.name && !busyIds.includes(u.name));
-return (<div className="max-w-3xl mx-auto space-y-8">{pendingExternalTasks.length > 0 && (<div className="bg-indigo-50 border-2 border-indigo-200 rounded-xl p-6 shadow-md"><h3 className="font-black text-indigo-800 mb-4 flex items-center gap-2 text-lg"><AlertCircle size={22}/> 第一區塊：差勤申請 (您有排定的日曆行程)</h3><div className="space-y-4">{pendingExternalTasks.map(task => (<PendingLeaveCard key={task.id} task={task} leaveTypes={leaveTypes} deputies={users.filter(u=>u.name!==user.name)} onSubmit={(data) => handleTaskSubmit(data, task.id)} isSubmitting={submittingTaskId === task.id}/>))}</div></div>)}<div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200"><div className="flex justify-between items-center mb-6 border-b pb-4"><h2 className="text-xl font-bold flex items-center gap-2 text-gray-800"><CalendarPlus/> 第二區塊：私假申請 / 其他假別</h2></div><form onSubmit={handleManualSubmit} className="space-y-5"><div><label className="text-sm font-bold text-gray-700 block mb-1">選擇假別</label><select className="w-full border p-2.5 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition" value={form.type} onChange={e=>setForm({ ...form, type:e.target.value})}><optgroup label="區段二：私假 (依法令給假)">{personalTypes.map(t=><option key={t.id} value={t.name}>{t.name}</option>)}</optgroup><optgroup label="區段一：公務與加班">{officialTypes.map(t=><option key={t.id} value={t.name}>{t.name}</option>)}</optgroup></select>{currentTypeDesc && (<div className="mt-2 text-xs text-blue-700 bg-blue-50 p-2 rounded border border-blue-100 flex items-start gap-2"><Info size={14} className="mt-0.5 shrink-0"/> {currentTypeDesc}</div>)}</div>
-<div className="bg-gray-50 border border-gray-100 p-4 rounded-xl space-y-4">
-<div className="flex bg-gray-200/60 p-1 rounded-lg w-full md:w-fit mx-auto md:mx-0">
-<button type="button" onClick={() => setInputMode('slot')} className={`flex-1 md:flex-none px-5 py-2 text-sm font-bold rounded-md transition-all ${inputMode === 'slot' ? 'bg-white shadow-sm text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>快速時段 (單日)</button>
-<button type="button" onClick={() => setInputMode('manual')} className={`flex-1 md:flex-none px-5 py-2 text-sm font-bold rounded-md transition-all ${inputMode === 'manual' ? 'bg-white shadow-sm text-blue-700' : 'text-gray-500 hover:text-gray-700'}`}>自訂時間 (精確/跨日)</button></div>
-{inputMode === 'slot' ? (
-<div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in zoom-in-95 duration-200">
-<div>
-<label className="text-sm font-bold text-gray-700 block mb-1">請假日期</label>
-<input type="date" required={inputMode === 'slot'} className="w-full border p-2.5 rounded-lg bg-white focus:ring-2 outline-none transition shadow-sm border-gray-200" value={slotDate} onChange={e=>setSlotDate(e.target.value)} /></div>
-<div>
-<label className="text-sm font-bold text-gray-700 block mb-1">時段選擇</label>
-<div className="flex bg-white border border-gray-200 shadow-sm rounded-lg p-1 h-[46px]">
-{TIME_SLOTS.map(s => (<button type="button" key={s.id} onClick={()=>setSlotType(s.id)} className={`flex-1 text-sm rounded-md transition ${slotType===s.id ? 'bg-blue-50 text-blue-700 font-bold border border-blue-200' : 'text-gray-500 hover:bg-gray-50'}`}>{s.label}</button>))}</div></div></div>
-) : (
-<div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in fade-in zoom-in-95 duration-200">
-<div><label className="text-sm font-bold text-gray-700 block mb-1">開始時間</label><input type="datetime-local" required={inputMode === 'manual'} className="w-full border p-2.5 rounded-lg bg-white focus:ring-2 outline-none transition shadow-sm border-gray-200" value={form.start} onChange={e=>setForm({ ...form, start:e.target.value})}/></div>
-<div><label className="text-sm font-bold text-gray-700 block mb-1">結束時間</label><input type="datetime-local" required={inputMode === 'manual'} className="w-full border p-2.5 rounded-lg bg-white focus:ring-2 outline-none transition shadow-sm border-gray-200" value={form.end} onChange={e=>setForm({ ...form, end:e.target.value})}/></div></div>
-)}</div>
-<div className="text-right">
-<div className="text-sm text-blue-700 font-bold bg-blue-50 p-2.5 rounded-lg inline-block border border-blue-100 shadow-sm">
-總計時數: {inputMode === 'slot' ? (slotType === 'all_day' ? 8 : 4) : hours} 小時</div></div>
-<div className="clear-both"></div>
-<div><label className="text-sm font-bold text-gray-700 block mb-1">職務代理人</label><select className="w-full border p-2.5 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 outline-none transition" required value={form.deputyId} onChange={e=>setForm({ ...form, deputyId:e.target.value})}><option value="">請選擇</option>{deputies.map(u=><option key={u.docId} value={u.docId}>{u.name}</option>)}</select></div><div><label className="text-sm font-bold text-gray-700 block mb-1">事由</label><textarea className="w-full border p-2.5 rounded-lg h-24 bg-gray-50 focus:bg-white focus:ring-2 outline-none transition resize-none" required placeholder="請簡述請假原因..." value={form.reason} onChange={e=>setForm({ ...form, reason:e.target.value})}/></div><button disabled={isSubmitting} className={`w-full bg-slate-800 text-white py-3.5 rounded-lg font-bold transition shadow-md flex justify-center items-center gap-2 ${isSubmitting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-900 hover:shadow-lg'}`}>{isSubmitting ? <><Loader2 className="animate-spin" size={20}/> 假單傳送中...</> : '確認送出假單'}</button></form></div></div>);}
+
+return (
+  <div className="max-w-3xl mx-auto space-y-6">
+    {/* 第一區塊：差勤申請（來自排班日曆） */}
+    <div className="bg-indigo-50 border-2 border-indigo-200 rounded-xl shadow-md overflow-hidden">
+      <button type="button" onClick={() => setOpenBlock1(v=>!v)} className="w-full flex items-center justify-between px-6 py-4 text-left">
+        <div className="flex items-center gap-2 font-black text-indigo-900 text-lg">
+          <AlertCircle size={22}/> 第一區塊：差勤申請 (您有排定的日曆行程)
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setOpenBlock2(true);
+              // 導到第二區塊，並預選加班假別
+              setForm(f => ({ ...f, type: overtimeTypeName || f.type }));
+              setTimeout(() => block2Ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+            }}
+            className="px-3 py-1.5 rounded-lg bg-indigo-700 text-white text-xs font-bold hover:bg-indigo-800"
+            title="加班申請不會顯示在日曆，請由此入口送出"
+          >
+            加班申請
+          </button>
+          <ChevronDown className={`transition-transform ${openBlock1 ? '' : '-rotate-90'}`} />
+        </div>
+      </button>
+
+      {openBlock1 && (
+        <div className="px-6 pb-6">
+          {pendingExternalTasks.length > 0 ? (
+            <div className="space-y-4">
+              {pendingExternalTasks.map(task => (
+                <PendingLeaveCard
+                  key={task.id}
+                  task={task}
+                  leaveTypes={leaveTypes}
+                  deputies={users.filter(u=>u.name!==user.name)}
+                  onSubmit={(data) => handleTaskSubmit(data, task.id)}
+                  isSubmitting={submittingTaskId === task.id}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="bg-white/70 border border-indigo-100 rounded-xl p-4 text-sm text-indigo-900">
+              <div className="font-bold mb-2">目前沒有可送出的日曆行程。</div>
+              <div className="text-indigo-800/90">
+                此區需先至「排班日曆」排定行程後，才會在此顯示可送出的差勤申請。
+              </div>
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setView ? setView('calendar') : alert('請至左側選單開啟「排班日曆」新增行程')}
+                  className="px-3 py-2 rounded-lg bg-white border border-indigo-200 text-indigo-800 text-xs font-bold hover:bg-indigo-50"
+                >
+                  前往排班日曆
+                </button>
+                <div className="text-xs text-indigo-700/80">
+                  （加班申請請點右上角「加班申請」）
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+
+    {/* 第二區塊：私假 / 其他假別 */}
+    <div ref={block2Ref} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+      <button type="button" onClick={() => setOpenBlock2(v=>!v)} className="w-full flex items-center justify-between px-6 py-4 text-left">
+        <div className="flex items-center gap-2 text-gray-800 font-bold text-lg">
+          <CalendarPlus/> 第二區塊：私假申請 / 其他假別
+        </div>
+        <ChevronDown className={`transition-transform ${openBlock2 ? '' : '-rotate-90'}`} />
+      </button>
+
+      {openBlock2 && (
+        <div className="px-6 pb-6">
+          <form onSubmit={handleManualSubmit} className="space-y-5">
+            <div>
+              <label className="text-sm font-bold text-gray-700 block mb-1">選擇假別</label>
+              <select
+                className="w-full border p-2.5 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition"
+                value={form.type}
+                onChange={e=>setForm({ ...form, type:e.target.value})}
+              >
+                <optgroup label="私假 / 依法令給假">
+                  {personalTypes.map(t=><option key={t.id} value={t.name}>{t.name}</option>)}
+                </optgroup>
+                <optgroup label="公務 / 加班">
+                  {officialTypes.map(t=><option key={t.id} value={t.name}>{t.name}</option>)}
+                </optgroup>
+              </select>
+              {currentTypeDesc && (
+                <div className="mt-2 text-xs text-blue-700 bg-blue-50 p-2 rounded border border-blue-100 flex items-start gap-2">
+                  <Info size={14} className="mt-0.5 shrink-0"/> {currentTypeDesc}
+                </div>
+              )}
+            </div>
+
+            <div className="bg-gray-50 border border-gray-100 p-4 rounded-xl space-y-4">
+              <div className="flex bg-gray-200/60 p-1 rounded-lg w-full md:w-fit mx-auto md:mx-0">
+                <button type="button" onClick={() => setInputMode('slot')} className={`flex-1 md:flex-none px-5 py-2 text-sm font-bold rounded-md transition-all ${inputMode === 'slot' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>快速時段</button>
+                <button type="button" onClick={() => setInputMode('manual')} className={`flex-1 md:flex-none px-5 py-2 text-sm font-bold rounded-md transition-all ${inputMode === 'manual' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>自訂時間</button>
+              </div>
+
+              {inputMode === 'slot' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-gray-600 block mb-1">日期</label>
+                    <input type="date" className="w-full border p-2 rounded-lg bg-white" value={slotDate} onChange={e=>setSlotDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-600 block mb-1">時段</label>
+                    <select className="w-full border p-2 rounded-lg bg-white" value={slotType} onChange={e=>setSlotType(e.target.value)}>
+                      <option value="all_day">整天 (08:00-17:00)</option>
+                      <option value="morning">上午 (08:00-12:00)</option>
+                      <option value="afternoon">下午 (13:00-17:00)</option>
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-gray-600 block mb-1">開始時間</label>
+                    <input type="datetime-local" className="w-full border p-2 rounded-lg bg-white" value={form.start} onChange={e=>setForm({ ...form, start: e.target.value })} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-600 block mb-1">結束時間</label>
+                    <input type="datetime-local" className="w-full border p-2 rounded-lg bg-white" value={form.end} onChange={e=>setForm({ ...form, end: e.target.value })} />
+                  </div>
+                </div>
+              )}
+
+              <div className="text-xs text-gray-500">
+                申請時數：<span className="font-bold text-gray-700">{hours || 0}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-bold text-gray-700 block mb-1">出差事由 / 原因</label>
+                <input className="w-full border p-2.5 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition" value={form.reason} onChange={e=>setForm({ ...form, reason:e.target.value})} placeholder="請簡述事由" />
+              </div>
+              <div>
+                <label className="text-sm font-bold text-gray-700 block mb-1">請選擇職代人員</label>
+                <select className="w-full border p-2.5 rounded-lg bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none transition" value={form.deputyId} onChange={e=>setForm({ ...form, deputyId:e.target.value})}>
+                  <option value="">— 請選擇 —</option>
+                  {users.filter(u=>u.name!==user.name).map(u=><option key={u.uid||u.docId||u.email||u.name} value={u.uid||u.docId||u.email||u.name}>{u.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button type="submit" disabled={isSubmitting} className={`px-5 py-3 rounded-xl text-white font-bold flex items-center gap-2 transition ${isSubmitting ? 'bg-gray-400 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-900 hover:shadow-lg'}`}>
+                {isSubmitting ? <><Loader2 className="animate-spin" size={20}/> 假單傳送中...</> : '確認送出假單'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+}
 function ApprovalView({ leaves, currentUser, crud, users }) {
 const [processingId, setProcessingId] = useState(null);
 const [selectedLeaderIds, setSelectedLeaderIds] = useState([]);
