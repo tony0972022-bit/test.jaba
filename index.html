@@ -661,7 +661,7 @@ ${isDesktopCollapsed ? 'md:w-20' : 'md:w-64'}
 <div className={`flex items-center gap-3 ${isDesktopCollapsed ? '' : 'w-full'}`}>
 <div className="shrink-0">{item.icon}</div>
 {!isDesktopCollapsed && <span>{item.label}</span>}</div>
-{!isDesktopCollapsed && item.count > 0 && <span className={`${view===item.id ? 'bg-white text-blue-600' : 'bg-red-500 text-white'} text-[10px] px-1.5 py-0.5 rounded-full font-bold ml-auto`}>{item.count}</span>}
+{!isDesktopCollapsed && item.count > 0 && <span className={`${view===item.id ? 'bg-white text-blue-600' : 'bg-red-500 text-white'} text-[10px] px-1.5 py-0.5 rounded-full font-bold ml-auto`}>{item.id==='calendar' ? `未派員${item.count}` : item.count}</span>}
 {isDesktopCollapsed && item.count > 0 && <div className="absolute top-1 right-2 w-2.5 h-2.5 bg-red-500 rounded-full border-2 border-white"></div>}</button>
 ))}
 {/* 管理設定區摺疊選單 (僅管理員顯示) */}
@@ -989,9 +989,48 @@ else setSelUsers([]);
 };
 const handleDeleteGroup = async () => {
 if(!editGroupId) return;
-if(confirm('確定要刪除此行程嗎？')) {
-await crud.deleteEventsByGroup(editGroupId);
-setModalOpen(false);}}
+if(!confirm('確定要刪除此行程嗎？')) return;
+try {
+  // 先刪除排班日曆行程
+  await crud.deleteEventsByGroup(editGroupId);
+
+  // 【同步處理】若同日同人員存在「待審中」假單，提供一併撤回，避免日曆刪了但審核列表還留著
+  const groupDate = modalData?.date || '';
+  const targetNames = (selUsers || []).map(uid => (users || []).find(u => (u.uid === uid || u.docId === uid))?.name).filter(Boolean);
+
+  const relatedLeaves = (leaves || []).filter(l => {
+    if(!l) return false;
+    const st = String(l.status || '');
+    if(['approved','rejected','withdrawn','recalled'].includes(st)) return false; // 已結案不動
+    if(!groupDate || !String(l.start||'').startsWith(groupDate)) return false;
+    const isTarget = (targetNames.includes(l.requesterName)) || (selUsers || []).includes(l.requesterId);
+    return isTarget;
+  });
+
+  if (relatedLeaves.length > 0) {
+    const ok = confirm(`已刪除排班行程。\n\n另外找到 ${relatedLeaves.length} 筆「同日、同人」的待審假單（可能已送出審核）。\n是否一併撤回，避免審核頁面仍出現？`);
+    if (ok) {
+      for (const lv of relatedLeaves) {
+        try {
+          await crud.updateLeave(lv.id, {
+            status: 'withdrawn',
+            withdrawnAt: new Date(),
+            withdrawnReason: '排班日曆刪除行程 → 自動撤回',
+            sourceGroupId: editGroupId,
+            withdrawnByCalendar: true
+          });
+        } catch(e) {
+          console.warn('withdraw leave failed', lv?.id, e);
+        }
+      }
+    }
+  }
+
+  setModalOpen(false);
+} catch(e) {
+  alert('刪除失敗：' + (e?.message || e));
+}}
+
 const handleModalSave = async () => {
 if(!modalData.workItem) { alert("請選擇工作項目"); return; }
 let conflictMsg = "";
@@ -1650,7 +1689,7 @@ if(form.start && form.end) { const diff = (new Date(form.end)-new Date(form.star
   };
 
 const handleTaskSubmit = async (taskData, taskId) => { setSubmittingTaskId(taskId); try { const now = new Date(); if(hasDeputyConflict(taskData.deputyId, taskData.start, taskData.end)){ alert('【職代防呆】所選職代於該時段已安排出差/請假，請更換人員。'); return; }
-await crud.createLeave({ ...taskData, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, status: 'pending', timestamp: now, submittedAt: now });
+await crud.createLeave({ ...taskData, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, status: 'pending', timestamp: now, submittedAt: now, sourceGroupId: submittingTaskId || null, sourceType: submittingTaskId ? 'calendar_event' : '' });
 // (送出申請不發mail)
 alert("差單已送出，已顯示在日曆上！"); } catch (e) { alert("送出失敗"); } finally { setSubmittingTaskId(null); } }
 const handleManualSubmit = async (e) => {
@@ -1686,7 +1725,7 @@ if (finalHours > balance) { alert(`補休時數不足！\n目前可用餘額: ${
 if(hasDeputyConflict(form.deputyId, finalStart, finalEnd)){ alert('【職代防呆】所選職代於該時段已安排出差/請假，請更換人員。'); return; }
 setIsSubmitting(true);
 try {
-await crud.createLeave({ ...form, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, start: finalStart, end: finalEnd, hours: finalHours, status: 'pending', timestamp: new Date(), submittedAt: new Date() });
+await crud.createLeave({ ...form, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, start: finalStart, end: finalEnd, hours: finalHours, status: 'pending', timestamp: new Date(), sourceGroupId: submittingTaskId || null, sourceType: submittingTaskId ? 'calendar_event' : '', submittedAt: new Date() });
 // (送出申請不發mail)
 alert("請假單已送出，已同步顯示在日曆上！");
 setForm({ type: defaultPersonalType, start:'', end:'', reason:'', deputyId:'' });
