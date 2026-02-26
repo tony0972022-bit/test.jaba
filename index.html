@@ -51,6 +51,37 @@ appId: "1:1082378001168:web:fc12acdeed9ebece762395",
 measurementId: "G-48TSVTHBDM"
 };
 const APP_ID = 'kpptjawork';
+// --- Apps Script Mail Notifier ---
+const MAIL_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxGDvK9PwxSqa-XpvdwQ2rCTfzWLJXjvXgwACAF0gvSDCVRPfSrUUwnpSqcq6X1wPXOtQ/exec";
+const MAIL_SECRET_KEY = "kpptja_mail_9Xf3aL7qZt2Vn8Rm4YwQp6Hd1B";
+
+// Simple mail sender (internal use)
+async function sendMail({ targetEmail, subject, body }) {
+  try {
+    if(!MAIL_WEBAPP_URL || !targetEmail) return;
+    const r = await fetch(MAIL_WEBAPP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        key: MAIL_SECRET_KEY,
+        targetEmail,
+        subject,
+        body
+      })
+    });
+    // Best-effort parse (Apps Script returns JSON text)
+    const t = await r.text();
+    try {
+      const j = JSON.parse(t);
+      if (j.status !== "success") console.warn("sendMail failed:", j);
+    } catch {
+      // Ignore non-JSON responses
+    }
+  } catch (e) {
+    console.warn("sendMail error:", e);
+  }
+}
+
 // -----------------------------------------------------------
 // --- Global Constants ---
 const WEATHER_LOCATIONS = [
@@ -434,7 +465,7 @@ const pendingApprovalCount = (userData.role === 'leader' || userData.role === 'a
 ? leaves.filter(l => l.status === 'deputy_signed').length
 : 0;
 const myPendingDeputy = leaves.filter(l => (l.deputyId === userData.uid || l.deputyId === (userData.email || '').toLowerCase()) && l.status === 'pending').length;
-const totalAlert = pendingApprovalCount + myPendingDeputy;
+const totalAlert = pendingApprovalCount \+ myPendingDeputy;
 const approvalMenuCount = (userData.role === 'leader' || userData.role === 'admin') ? totalAlert : myPendingDeputy;
 const isLight = sidebarTheme === 'light';
 const sidebarBg = isLight ? 'bg-white border-r border-gray-200 text-gray-800' : 'bg-slate-800 text-gray-100 border-r border-slate-700';
