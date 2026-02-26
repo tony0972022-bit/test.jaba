@@ -688,7 +688,8 @@ const [selUsers, setSelUsers] = useState([]);
 const [editGroupId, setEditGroupId] = useState(null);
 const [isSubmitting, setIsSubmitting] = useState(false);
 const [importantModalOpen, setImportantModalOpen] = useState(false);
-const [importantForm, setImportantForm] = u// --- Helper: Effective leave hours for stats (跨天以 8 小時/天計) ---
+const [importantForm, setImportantForm] = useState({ id: null, date: '', owner: '', text: '' });
+// --- Helper: Effective leave hours for stats (跨天以 8 小時/天計) ---
 const getEffectiveLeaveHours = (l) => {
 try {
 const s = (l.start || '').split('T')[0];
