@@ -174,6 +174,7 @@ areaColors: DEFAULT_AREA_COLORS,
 customHolidays: DEFAULT_SPECIAL_HOLIDAYS
 });
 const [loading, setLoading] = useState(true);
+const [connectSeconds, setConnectSeconds] = useState(0);
 const [db, setDb] = useState(null);
 const [auth, setAuth] = useState(null);
 const handleUpdateRoleNames = (newNames) => {
@@ -647,7 +648,21 @@ const [selUsers, setSelUsers] = useState([]);
 const [editGroupId, setEditGroupId] = useState(null);
 const [isSubmitting, setIsSubmitting] = useState(false);
 const [importantModalOpen, setImportantModalOpen] = useState(false);
-const [importantForm, setImportantForm] = useState({ id: null, date: '', owner: '', text: '' });
+const [importantForm, setImportantForm] = u
+// --- Helper: Effective leave hours for stats (跨天以 8 小時/天計) ---
+const getEffectiveLeaveHours = (l) => {
+try {
+const s = (l.start || '').split('T')[0];
+const e = (l.end || '').split('T')[0];
+if (!s || !e) return Number(l.hours || 0);
+if (s === e) return Number(l.hours || 0);
+const sd = new Date(s + 'T00:00');
+const ed = new Date(e + 'T00:00');
+const days = Math.floor((ed - sd) / 86400000) + 1;
+return Math.max(0, days) * 8;
+} catch { return Number(l.hours || 0); }
+};
+seState({ id: null, date: '', owner: '', text: '' });
 useEffect(()=>{try{if((importantItems||[]).length===0&&!localStorage.getItem('important_seed_v1')){localStorage.setItem('important_seed_v1','1');crud.createImportantItem({date:'2026-03-05',owner:'方姿云',text:'第一期成果報告（工作項目：分配等等）',createdAt:new Date()});}}catch(e){}},[importantItems,crud]);
 const upcomingImportant = useMemo(() => {
   const now = new Date();
@@ -1282,7 +1297,7 @@ return pending.sort((a,b) => a.date.localeCompare(b.date));
 useEffect(() => {
 if(form.start && form.end) { const diff = (new Date(form.end)-new Date(form.start))/36e5; setHours(Math.max(0, Math.round(diff*2)/2)); }
 }, [form.start, form.end]);
-const handleTaskSubmit = async (taskData, taskId) => { setSubmittingTaskId(taskId); try { await crud.createLeave({ ...taskData, requesterId: user.docId || user.uid, requesterName: user.name, status: 'pending', timestamp: new Date() }); alert("差單已送出，已顯示在日曆上！"); } catch (e) { alert("送出失敗"); } finally { setSubmittingTaskId(null); } }
+const handleTaskSubmit = async (taskData, taskId) => { setSubmittingTaskId(taskId); try { await crud.createLeave({ ...taskData, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, status: 'pending', timestamp: new Date(), submittedAt: new Date() }); alert("差單已送出，已顯示在日曆上！"); } catch (e) { alert("送出失敗"); } finally { setSubmittingTaskId(null); } }
 const handleManualSubmit = async (e) => {
 e.preventDefault();
 let finalStart = form.start;
@@ -1315,7 +1330,7 @@ const balance = totalOvertime - usedCompensatory;
 if (finalHours > balance) { alert(`補休時數不足！\n目前可用餘額: ${balance} 小時\n您申請時數: ${finalHours} 小時`); return; }}
 setIsSubmitting(true);
 try {
-await crud.createLeave({ ...form, requesterId: user.docId || user.uid, requesterName: user.name, start: finalStart, end: finalEnd, hours: finalHours, status: 'pending', timestamp: new Date() });
+await crud.createLeave({ ...form, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, start: finalStart, end: finalEnd, hours: finalHours, status: 'pending', timestamp: new Date(), submittedAt: new Date() });
 alert("請假單已送出，已同步顯示在日曆上！");
 setForm({ type: defaultPersonalType, start:'', end:'', reason:'', deputyId:'' });
 setSlotDate(getLocalDateString());
@@ -1416,7 +1431,7 @@ try { await crud.deleteLeave(id); } catch(e) { alert("刪除失敗"); }
 setProcessingId(null);}
 };
 const filteredAllLeaves = useMemo(()=>{
-const byUser=l=>{if(allFilterUser==='all') return true;const u=users.find(x=>x.docId===allFilterUser||x.uid===allFilterUser||((x.email||'').toLowerCase()===allFilterUser));if(!u) return l.requesterId===allFilterUser||l.requesterName===allFilterUser;const ids=[u.docId,u.uid,(u.email||'').toLowerCase()].filter(Boolean);return ids.includes(l.requesterId)||l.requesterName===u.name;};
+const byUser=l=>{if(allFilterUser==='all') return true;const u=users.find(x=>x.docId===allFilterUser||x.uid===allFilterUser||((x.email||'').toLowerCase()===allFilterUser));if(!u) return l.requesterId===allFilterUser||l.requesterName===allFilterUser;const ids=[u.docId,u.uid,(u.email||'').toLowerCase()].filter(Boolean);return ids.includes(l.requesterId)||ids.includes(l.requesterUid)||ids.includes(l.requesterDocId)||ids.includes((l.requesterEmail||'').toLowerCase())||l.requesterName===u.name;};
 const byType=l=>allFilterType==='all'||l.type===allFilterType;
 const byStatus=l=>allFilterStatus==='all'||l.status===allFilterStatus;
 const mk=l=> (l.start||'').slice(0,7);
@@ -1462,7 +1477,7 @@ return (
 <th className="p-3 font-bold">日期</th>
 <th className="p-3 font-bold text-gray-500">時間</th>
 <th className="p-3 font-bold w-16">時數</th>
-<th className="p-3 font-bold w-24">狀態</th>
+<th className="p-3 font-bold w-24">狀態</th><th className="p-3 font-bold">送出時間</th>
 <th className="p-3 font-bold text-center">操作</th></tr></thead>
 <tbody>
 {[...leaves].sort((a,b) => new Date(b.timestamp || b.start) - new Date(a.timestamp || a.start)).map(l => {
@@ -1597,8 +1612,8 @@ let usedMaternity = 0;
 let usedFamilyCare = 0;
 let usedOfficial = 0; // 新增：公務出差
 filteredLeaves.forEach(l => {
-const days = l.hours / 8;
-const hours = Number(l.hours);
+const hours = getEffectiveLeaveHours(l);
+const days = hours / 8;
 if (l.type.includes('特休')) usedAnnual += days;
 if (l.type.includes('病假') || l.type.includes('生理假')) usedSick += days;
 if (l.type.includes('事假') && !l.type.includes('公假')) usedPersonal += days;
@@ -1648,6 +1663,9 @@ try {
 await crud.createLeave({
 type: '榮譽假(獲得)',
 requesterId: targetUser.uid || targetUser.docId,
+requesterUid: targetUser.uid || null,
+requesterDocId: targetUser.docId || null,
+requesterEmail: (targetUser.email||'').toLowerCase(),
 requesterName: targetUser.name,
 hours: Number(hoursStr),
 reason: reason,
