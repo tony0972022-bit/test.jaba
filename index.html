@@ -547,12 +547,6 @@ createLeave: async (d) => addDoc(collection(db, 'artifacts', APP_ID, 'public', '
 updateLeave: async (id, data) => updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'leaves', id), { ...data, approvalDate: new Date() }),
 deleteLeave: async (id) => deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'leaves', id))
 };
-if (loading) return (
-<div className="h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-600 gap-4">
-<div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-<div className="text-lg font-medium">連線至雲端資料庫...</div></div>);
-if (!user || !userData) return <LoginScreen auth={auth} />;
-
 // --- 待派員通知（僅組長/管理員）：日曆中有「只有工作項目但未派員」的行程 ---
 const unassignedInfo = useMemo(() => {
   const groups = {};
@@ -585,6 +579,14 @@ useEffect(() => {
     try { localStorage.setItem(key, '1'); } catch {}
   }
 }, [userData, unassignedInfo]);
+
+if (loading) return (
+<div className="h-screen flex flex-col items-center justify-center bg-gray-50 text-gray-600 gap-4">
+<div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+<div className="text-lg font-medium">連線至雲端資料庫...</div></div>);
+if (!user || !userData) return <LoginScreen auth={auth} />;
+
+
 
 const pendingApprovalCount = (userData.role === 'leader' || userData.role === 'admin')
 ? leaves.filter(l => l.status === 'deputy_signed').length
