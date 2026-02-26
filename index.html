@@ -928,42 +928,118 @@ const groupList = Object.values(groups).sort((a,b) => {
   return (slotOrder[a.slot] ?? 9) - (slotOrder[b.slot] ?? 9);
 });
 const renderGroup = (g) => {
-const groupId = g.tag?.groupId || g.people[0]?.groupId;
-const tagName = g.tag?.item || '未命名';
-// 處理陣列格式的轄區
-const areas = Array.isArray(g.tag?.area) ? g.tag.area : (g.tag?.area ? [g.tag.area] : []);
-const note = g.tag?.note || '';
-const groupEvents = [g.tag, ...g.people].filter(Boolean);
-const slotType = g.slot || 'all_day';
-let bgClass = getWorkBgClass(tagName, (g.people || []).length > 0);
-// 嶄新的卡片式 UI 設計
-return (
-<div key={groupId}
-onClick={(e) => handleEventClick(e, groupEvents)}
-className={`group/item relative flex flex-col mb-1.5 p-2 rounded-lg cursor-pointer hover:shadow-md hover:-translate-y-px transition-all ${bgClass}`}
->
-<div className="flex justify-between items-start gap-1 mb-1">
-<div className="flex items-center gap-2 min-w-0"><span className="font-bold text-gray-800 text-sm leading-tight truncate">{tagName}</span><span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-white/70 text-gray-700 border border-gray-200">{slotLabel(slotType)}</span>{(!(g.people||[]).length) && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-yellow-400/60 text-yellow-900 border border-yellow-500">待派員</span>}</div>
-{areas.length > 0 && (
-<div className="flex gap-1 flex-wrap justify-end">
-{areas.map(a => {
-const ac = settings.areaColors[a] || "bg-gray-100 text-gray-800";
-return <span key={a} className={`px-1.5 py-0.5 rounded-full text-[10px] md:text-xs font-bold leading-none ${ac}`}>{a}</span>
-})}</div>
-)}</div>
-{(note || g.people.length > 0) && (
-<div className="flex items-center justify-between mt-1">
-<div className="flex flex-wrap gap-1">
-{g.people.length > 0 && ([...g.people].sort((a,b)=>{const aj=(userMetaById[a.userId]?.joinDate)?new Date(userMetaById[a.userId].joinDate).getTime():Number.POSITIVE_INFINITY; const bj=(userMetaById[b.userId]?.joinDate)?new Date(userMetaById[b.userId].joinDate).getTime():Number.POSITIVE_INFINITY; return aj-bj;})).map(p => {
-const userProfile = users.find(u => u.uid === p.userId || u.docId === p.userId || u.name === p.userName);
-const displayUser = userProfile || { initials: p.userAvatar, color: p.userColor || 'bg-gray-200', usePhoto: false };
-return <UserAvatar key={p.id} user={displayUser} size="w-7 h-7 md:w-8 md:h-8" textSize="text-xs md:text-sm" className="shadow-sm border-white border-[1.5px]" />;
-})}</div>
-{note && <span className="text-[10px] md:text-xs text-gray-400 truncate max-w-[80px] ml-2" title={note}>{note}</span>}</div>
-)}
-<button onClick={(e)=>{e.stopPropagation(); if(confirm('刪除?')) crud.deleteEventsByGroup(groupId)}}
-className="absolute -top-2 -right-2 p-1 bg-white rounded-full shadow-md opacity-0 group-hover/item:opacity-100 text-gray-400 hover:text-red-500 transition-opacity">
-<X size={14}/></button></div>);
+  const groupId = g.tag?.groupId || g.people[0]?.groupId;
+  const tagName = g.tag?.item || '未命名';
+  const areas = Array.isArray(g.tag?.area) ? g.tag.area : (g.tag?.area ? [g.tag.area] : []);
+  const note = g.tag?.note || '';
+  const groupEvents = [g.tag, ...g.people].filter(Boolean);
+  const slotType = g.slot || 'all_day';
+  const hasPeople = (g.people || []).length > 0;
+  const bgClass = getWorkBgClass(tagName, hasPeople);
+
+  // --- compact chips (no data loss: keep full list in title) ---
+  const MAX_AREA_CHIPS = 2;
+  const shownAreas = areas.slice(0, MAX_AREA_CHIPS);
+  const moreAreas = Math.max(0, areas.length - shownAreas.length);
+  const allAreasTitle = areas.join('、');
+
+  const sortedPeople = [...(g.people || [])].sort((a,b)=>{
+    const aj=(userMetaById[a.userId]?.joinDate)?new Date(userMetaById[a.userId].joinDate).getTime():Number.POSITIVE_INFINITY;
+    const bj=(userMetaById[b.userId]?.joinDate)?new Date(userMetaById[b.userId].joinDate).getTime():Number.POSITIVE_INFINITY;
+    return aj-bj;
+  });
+
+  const MAX_AVATARS = 4;
+  const shownPeople = sortedPeople.slice(0, MAX_AVATARS);
+  const morePeople = Math.max(0, sortedPeople.length - shownPeople.length);
+  const allPeopleTitle = sortedPeople.map(p => p.userName).filter(Boolean).join('、');
+
+  return (
+    <div
+      key={groupId}
+      onClick={(e) => handleEventClick(e, groupEvents)}
+      className={`group/item relative mb-1.5 rounded-lg cursor-pointer hover:shadow-md hover:-translate-y-px transition-all ${bgClass}`}
+    >
+      <div className="p-2 flex flex-col gap-1.5">
+        {/* Row 1: title + slot */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex items-center gap-2">
+            <span className="font-bold text-gray-800 text-sm leading-tight truncate">{tagName}</span>
+            {!hasPeople && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-yellow-400/60 text-yellow-900 border border-yellow-500">
+                待派員
+              </span>
+            )}
+          </div>
+          <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-white/70 text-gray-700 border border-gray-200">
+            {slotLabel(slotType)}
+          </span>
+        </div>
+
+        {/* Row 2: areas (condensed +N, full list in title) */}
+        {areas.length > 0 && (
+          <div className="flex items-center gap-1 flex-wrap" title={allAreasTitle}>
+            {shownAreas.map(a => {
+              const ac = settings.areaColors[a] || "bg-gray-100 text-gray-800";
+              return (
+                <span key={a} className={`px-1.5 py-0.5 rounded-full text-[10px] md:text-xs font-bold leading-none ${ac}`}>
+                  {a}
+                </span>
+              );
+            })}
+            {moreAreas > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-white/60 text-gray-700 border border-gray-200">
+                +{moreAreas}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Row 3: people (single row +N, full list in title) + note */}
+        {(note || hasPeople) && (
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-1 overflow-hidden" title={allPeopleTitle}>
+              <div className="flex items-center gap-1 flex-nowrap">
+                {shownPeople.map(p => {
+                  const userProfile = users.find(u => u.uid === p.userId || u.docId === p.userId || u.name === p.userName);
+                  const displayUser = userProfile || { initials: p.userAvatar, color: p.userColor || 'bg-gray-200', usePhoto: false };
+                  return (
+                    <UserAvatar
+                      key={p.id}
+                      user={displayUser}
+                      size="w-7 h-7 md:w-8 md:h-8"
+                      textSize="text-xs md:text-sm"
+                      className="shadow-sm border-white border-[1.5px] flex-shrink-0"
+                    />
+                  );
+                })}
+                {morePeople > 0 && (
+                  <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-white/60 text-gray-700 border border-gray-200 flex-shrink-0">
+                    +{morePeople}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {note && (
+              <span className="text-[10px] md:text-xs text-gray-400 truncate max-w-[120px]" title={note}>
+                {note}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Delete (hover) */}
+      <button
+        onClick={(e)=>{e.stopPropagation(); if(confirm('刪除?')) crud.deleteEventsByGroup(groupId)}}
+        className="absolute -top-2 -right-2 p-1 bg-white rounded-full shadow-md opacity-0 group-hover/item:opacity-100 text-gray-400 hover:text-red-500 transition-opacity"
+        title="刪除"
+      >
+        <X size={14}/>
+      </button>
+    </div>
+  );
 };
 const renderLeaves = () => {
 const leavesOnDay = leaves.filter(l =>
