@@ -2061,6 +2061,68 @@ return (
                 </div>
               )}
             </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-bold text-gray-700 block mb-1">職務代理人</label>
+                <select className="w-full border p-2.5 rounded-lg bg-white" value={form.deputyId} onChange={e=>setForm({ ...form, deputyId: e.target.value })} required>
+                  <option value="">請選擇</option>
+                  {deputies.map(d => (
+                    <option key={d.docId || d.uid} value={(d.uid || d.docId || d.email || "").toLowerCase()}>{d.name}</option>
+                  ))}
+                </select>
+                <div className="text-[11px] text-gray-500 mt-1">同日已排請假者不會出現在清單中</div>
+              </div>
+              <div>
+                <label className="text-sm font-bold text-gray-700 block mb-1">事由（可補充）</label>
+                <textarea
+                  className="w-full border p-2.5 rounded-lg bg-white min-h-[92px]"
+                  value={form.reason}
+                  onChange={e=>setForm({ ...form, reason: e.target.value })}
+                  placeholder="系統會先帶入假別名稱，你可再補充說明…"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 pt-2">
+              <div className="text-xs text-gray-600">
+                {(() => {
+                  try {
+                    if (inputMode === "slot") {
+                      const d = slotDate;
+                      if (!d) return "請選擇日期";
+                      const t = slotType;
+                      const start = (t === "morning") ? `${d} 08:00` : (t === "afternoon") ? `${d} 13:00` : `${d} 08:00`;
+                      const end   = (t === "morning") ? `${d} 12:00` : (t === "afternoon") ? `${d} 17:00` : `${d} 17:00`;
+                      const hrs   = (t === "all_day") ? 8 : 4;
+                      return `預覽：${start} ～ ${end}（${hrs} 小時）`;
+                    }
+                    const d = String(manualDate || "");
+                    const n = Math.max(1, Number(manualDays || 1));
+                    if (!d) return "請填寫起始日期";
+                    const sd = d;
+                    const ed = (() => { try { const x = new Date(d+"T00:00"); x.setDate(x.getDate() + (n-1)); return getLocalDateString(x); } catch { return d; } })();
+                    if (manualAdvanced && form.start && form.end) {
+                      return `預覽：${fmtISO(form.start)} ～ ${fmtISO(form.end)}（以自訂起訖為準）`;
+                    }
+                    return `預覽：${sd} 08:00 ～ ${ed} 17:00（${n*8} 小時）`;
+                  } catch {
+                    return "";
+                  }
+                })()}
+              </div>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className={`px-5 py-2.5 rounded-lg font-black text-white ${isSubmitting ? "bg-gray-400" : "bg-blue-600 hover:bg-blue-700"} transition shadow`}
+              >
+                {isSubmitting ? "送出中…" : "送出申請"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
   </div>
 );
 
