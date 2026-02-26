@@ -744,31 +744,6 @@ const [editGroupId, setEditGroupId] = useState(null);
 const [isSubmitting, setIsSubmitting] = useState(false);
 const [importantModalOpen, setImportantModalOpen] = useState(false);
 const [importantForm, setImportantForm] = useState({ id: null, date: '', owner: '', text: '' });
-
-const usersBySeniority = useMemo(() => {
-  const arr = [...(users || [])];
-  const jt = (u) => u?.joinDate ? new Date(u.joinDate).getTime() : Number.POSITIVE_INFINITY;
-  arr.sort((a,b) => jt(a) - jt(b));
-  return arr;
-}, [users]);
-const userMetaById = useMemo(() => {
-  const m = {};
-  (users || []).forEach(u => { m[u.uid || u.docId] = u; });
-  return m;
-}, [users]);
-const slotLabel = (s) => (s === 'all_day' ? '整天' : (s === 'morning' ? '上午' : '下午'));
-const getWorkBgClass = (tagName, hasPeople) => {
-  if (!hasPeople) return "bg-yellow-200"; // 待派員
-  const n = String(tagName || "");
-  if (n.includes("審查")) return "bg-indigo-50";
-  if (n.includes("訪視")) return "bg-emerald-50";
-  if (n.includes("成效")) return "bg-sky-50";
-  if (n.includes("試用")) return "bg-teal-50";
-  if (n.includes("OFF")) return "bg-gray-100";
-  if (n.includes("月報") || n.includes("報告")) return "bg-amber-50";
-  if (n.includes("大宗")) return "bg-orange-50";
-  return "bg-blue-50";
-};
 useEffect(()=>{try{if((importantItems||[]).length===0&&!localStorage.getItem('important_seed_v1')){localStorage.setItem('important_seed_v1','1');crud.createImportantItem({date:'2026-03-05',owner:'方姿云',text:'第一期成果報告（工作項目：分配等等）',createdAt:new Date()});}}catch(e){}},[importantItems,crud]);
 const upcomingImportant = useMemo(() => {
   const now = new Date();
@@ -913,29 +888,25 @@ const dayOfWeek = dObj.getDay();
 const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 const holidayName = TAIWAN_HOLIDAYS_2026[dStr] || settings?.customHolidays?.[dStr];
 const isHoliday = !!holidayName;
+const slots = { morning: [], afternoon: [], all_day: [] };
 const groups = {};
 dayEvs.forEach(e => {
 if (!groups[e.groupId]) groups[e.groupId] = { tag: null, people: [], slot: e.slot || 'all_day' };
 if (e.type === 'tag') groups[e.groupId].tag = e;
 if (e.type === 'person') groups[e.groupId].people.push(e);
 });
-const slotOrder = { all_day: 0, morning: 1, afternoon: 2 };
-const groupList = Object.values(groups).sort((a,b) => {
-  const an = (a.tag?.item || "").localeCompare ? (a.tag?.item || "") : String(a.tag?.item||"");
-  const bn = (b.tag?.item || "").localeCompare ? (b.tag?.item || "") : String(b.tag?.item||"");
-  const nameCmp = String(a.tag?.item || "").localeCompare(String(b.tag?.item || ""), 'zh-Hant');
-  if (nameCmp !== 0) return nameCmp;
-  return (slotOrder[a.slot] ?? 9) - (slotOrder[b.slot] ?? 9);
-});
-const renderGroup = (g) => {
+Object.values(groups).forEach(g => { if (slots[g.slot]) slots[g.slot].push(g); });
+const renderGroup = (g, slotType) => {
 const groupId = g.tag?.groupId || g.people[0]?.groupId;
 const tagName = g.tag?.item || '未命名';
 // 處理陣列格式的轄區
 const areas = Array.isArray(g.tag?.area) ? g.tag.area : (g.tag?.area ? [g.tag.area] : []);
 const note = g.tag?.note || '';
 const groupEvents = [g.tag, ...g.people].filter(Boolean);
-const slotType = g.slot || 'all_day';
-let bgClass = getWorkBgClass(tagName, (g.people || []).length > 0);
+let bgClass = "bg-gray-100";
+if (slotType === 'morning') bgClass = "bg-emerald-50";
+else if (slotType === 'afternoon') bgClass = "bg-orange-50";
+else if (slotType === 'all_day') bgClass = "bg-blue-50";
 // 嶄新的卡片式 UI 設計
 return (
 <div key={groupId}
@@ -943,7 +914,7 @@ onClick={(e) => handleEventClick(e, groupEvents)}
 className={`group/item relative flex flex-col mb-1.5 p-2 rounded-lg cursor-pointer hover:shadow-md hover:-translate-y-px transition-all ${bgClass}`}
 >
 <div className="flex justify-between items-start gap-1 mb-1">
-<div className="flex items-center gap-2 min-w-0"><span className="font-bold text-gray-800 text-sm leading-tight truncate">{tagName}</span><span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-white/70 text-gray-700 border border-gray-200">{slotLabel(slotType)}</span>{(!(g.people||[]).length) && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-yellow-400/60 text-yellow-900 border border-yellow-500">待派員</span>}</div>
+<span className="font-bold text-gray-800 text-sm leading-tight">{tagName}</span>
 {areas.length > 0 && (
 <div className="flex gap-1 flex-wrap justify-end">
 {areas.map(a => {
@@ -954,7 +925,7 @@ return <span key={a} className={`px-1.5 py-0.5 rounded-full text-[10px] md:text-
 {(note || g.people.length > 0) && (
 <div className="flex items-center justify-between mt-1">
 <div className="flex flex-wrap gap-1">
-{g.people.length > 0 && ([...g.people].sort((a,b)=>{const aj=(userMetaById[a.userId]?.joinDate)?new Date(userMetaById[a.userId].joinDate).getTime():Number.POSITIVE_INFINITY; const bj=(userMetaById[b.userId]?.joinDate)?new Date(userMetaById[b.userId].joinDate).getTime():Number.POSITIVE_INFINITY; return aj-bj;})).map(p => {
+{g.people.length > 0 && g.people.map(p => {
 const userProfile = users.find(u => u.uid === p.userId || u.docId === p.userId || u.name === p.userName);
 const displayUser = userProfile || { initials: p.userAvatar, color: p.userColor || 'bg-gray-200', usePhoto: false };
 return <UserAvatar key={p.id} user={displayUser} size="w-7 h-7 md:w-8 md:h-8" textSize="text-xs md:text-sm" className="shadow-sm border-white border-[1.5px]" />;
@@ -979,7 +950,9 @@ return leavesOnDay.map(l => (
 };
 return (<div key={dStr} className={`border-b border-r border-gray-200 p-1.5 md:p-2 min-h-[120px] md:min-h-[14vh] relative transition-colors flex flex-col group hover:bg-gray-50`} onClick={() => handleDayClick(dObj)}><div className="w-full flex justify-between items-start mb-2"><div className="flex flex-col items-center w-full"><span className={`text-sm md:text-base font-bold px-3 py-0.5 w-full text-center rounded-md ${isToday ? 'bg-yellow-300 text-black shadow-sm' : (isWeekend || isHoliday ? 'text-red-500' : 'text-gray-700')}`}>{dObj.getDate()} {isHoliday && <span className="ml-1 text-[10px] md:text-xs bg-red-500 text-white px-1.5 py-0.5 rounded align-middle">{holidayName}</span>}</span></div><div className="absolute top-2 right-2"><Edit2 size={16} className="text-gray-300 group-hover:text-blue-500 opacity-0 group-hover:opacity-100 transition"/></div></div>
 <div className="flex-1 flex flex-col gap-1 overflow-hidden" onClick={e=>e.stopPropagation()}>
-{groupList.length===0 ? <div className="text-xs text-gray-400 px-2 py-1">（尚無排班）</div> : groupList.map(g => renderGroup(g))}
+{slots.all_day.length > 0 && <div className="mb-1"><div className="text-xs font-bold text-blue-700 mb-1.5 sticky top-0 z-0 pl-1">▍整天</div>{slots.all_day.map(g => renderGroup(g, 'all_day'))}</div>}
+{slots.morning.length > 0 && <div className="mb-1"><div className="text-xs font-bold text-emerald-700 mb-1.5 sticky top-0 z-0 pl-1">▍上午</div>{slots.morning.map(g => renderGroup(g, 'morning'))}</div>}
+{slots.afternoon.length > 0 && <div className="mb-1"><div className="text-xs font-bold text-orange-700 mb-1.5 sticky top-0 z-0 pl-1">▍下午</div>{slots.afternoon.map(g => renderGroup(g, 'afternoon'))}</div>}
 <div className="mt-auto flex flex-col-reverse w-full pt-2">{renderLeaves()}</div></div></div>);
 };
 return (
@@ -1060,7 +1033,7 @@ className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${activ
 <div>
 <label className="block text-xs font-bold text-gray-700 mb-2">參與人員</label>
 <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-{usersBySeniority.map(u => {
+{users.map(u => {
 const active = selUsers.includes(u.uid || u.docId);
 return (
 <div key={u.docId} onClick={()=>setSelUsers(p=>active?p.filter(x => x !== (u.uid || u.docId)):[...p,(u.uid || u.docId)])} className={`flex flex-col items-center p-2 rounded-lg border cursor-pointer transition select-none ${active?'bg-blue-50 border-blue-500 ring-1 ring-blue-500':'bg-white hover:bg-gray-50 border-gray-200'}`}>
@@ -1411,37 +1384,163 @@ useEffect(() => {
 if(form.start && form.end) { const diff = (new Date(form.end)-new Date(form.start))/36e5; setHours(Math.max(0, Math.round(diff*2)/2)); }
 }, [form.start, form.end]);
 
-  // 職代防呆：職代於同時段已安排出差/請假則禁止選擇
-  const hasDeputyConflict = (deputyId, start, end) => {
-    if(!deputyId || !start || !end) return false;
-    const s0 = new Date(start);
-    const e0 = new Date(end);
-    const overlaps = (s1,e1)=> (s0 <= e1 && e0 >= s1);
-    // leaves：比對職代本人是否已有請假/出差（排除退回/撤簽）
-    const leaveHit = (leaves||[]).some(l=>{
-      if(!l || !l.start || !l.end) return false;
-      if(l.status==='rejected' || l.status==='withdrawn') return false;
-      const rid = l.requesterId || l.requesterDocId || l.requesterUid || '';
-      if(String(rid) !== String(deputyId)) return false;
-      return overlaps(new Date(l.start), new Date(l.end));
-    });
-    if(leaveHit) return true;
-    // calendar_events：比對職代行程（若你的 event 有 personId）
-    const calHit = (events||[]).some(ev=>{
-      if(!ev) return false;
-      const pid = ev.personId || ev.person || ev.personUid || ev.personDocId || '';
-      if(String(pid) !== String(deputyId)) return false;
-      const es = ev.start || ev.startDateTime || ev.date || ev.startTime;
-      const ee = ev.end || ev.endDateTime || ev.date || ev.endTime;
-      if(!es) return false;
-      const s1 = new Date(es);
-      const e1 = ee ? new Date(ee) : s1;
-      return overlaps(s1,e1);
-    });
-    return calHit;
+  // 職代防呆（智慧版）：僅擋「同時段重疊」；資料不足/錯誤則放行
+  const fmtDT = (v) => {
+    try {
+      const d = new Date(v);
+      if (isNaN(d)) return String(v || '');
+      return d.toLocaleString('zh-TW', { hour12: false });
+    } catch {
+      return String(v || '');
+    }
   };
 
-const handleTaskSubmit = async (taskData, taskId) => { setSubmittingTaskId(taskId); try { const now = new Date(); if(hasDeputyConflict(taskData.deputyId, taskData.start, taskData.end)){ alert('【職代防呆】所選職代於該時段已安排出差/請假，請更換人員。'); return; }
+  const toDateSafe = (v, fallbackDateStr) => {
+    if (!v) return null;
+    // 若只有日期（YYYY-MM-DD），視為整天 08:00~17:00 的起點
+    if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v)) {
+      return new Date(`${v}T08:00`);
+    }
+    const d = new Date(v);
+    if (!isNaN(d)) return d;
+    // 嘗試用 fallbackDateStr 補齊
+    if (fallbackDateStr && typeof v === 'string' && /^\d{2}:\d{2}$/.test(v)) {
+      const d2 = new Date(`${fallbackDateStr}T${v}`);
+      if (!isNaN(d2)) return d2;
+    }
+    return null;
+  };
+
+  const buildOverlap = (s0, e0, s1, e1) => {
+    // 僅擋「重疊」：A.start < B.end 且 A.end > B.start
+    return (s0 < e1 && e0 > s1);
+  };
+
+  const getDeputyConflicts = (deputyId, start, end) => {
+    try {
+      if (!deputyId || !start || !end) return [];
+      const s0 = toDateSafe(start);
+      const e0 = toDateSafe(end);
+      if (!s0 || !e0 || isNaN(s0) || isNaN(e0) || e0 <= s0) return [];
+
+      const conflicts = [];
+
+      // 1) leaves：比對職代本人是否已有請假/出差（排除退回/撤簽）
+      (leaves || []).forEach(l => {
+        if (!l || !l.start || !l.end) return;
+        if (l.status === 'rejected' || l.status === 'withdrawn') return;
+        const rid = l.requesterId || l.requesterDocId || l.requesterUid || l.requesterEmail || '';
+        if (String(rid) !== String(deputyId)) return;
+
+        const s1 = toDateSafe(l.start);
+        const e1 = toDateSafe(l.end);
+        if (!s1 || !e1 || isNaN(s1) || isNaN(e1)) return;
+
+        if (buildOverlap(s0, e0, s1, e1)) {
+          conflicts.push({
+            kind: '請假',
+            type: l.type || '',
+            start: s1,
+            end: e1
+          });
+        }
+      });
+
+      // 2) calendar_events：比對職代行程（若你的 event 有 personId）
+      (events || []).forEach(ev => {
+        if (!ev) return;
+        const pid = ev.personId || ev.person || ev.personUid || ev.personDocId || ev.userId || ev.userUid || '';
+        if (String(pid) !== String(deputyId)) return;
+
+        const dateStr = ev.date || (typeof ev.start === 'string' ? ev.start.split('T')[0] : null);
+        const sRaw = ev.start || ev.startDateTime || ev.startTime || ev.timeStart || ev.from || ev.begin;
+        const eRaw = ev.end || ev.endDateTime || ev.endTime || ev.timeEnd || ev.to || ev.finish;
+
+        let s1 = toDateSafe(sRaw, dateStr);
+        let e1 = toDateSafe(eRaw, dateStr);
+
+        // 若沒有 end，依 slot 推估
+        if (!s1) return;
+        if (!e1) {
+          const d = (dateStr || (typeof sRaw === 'string' ? sRaw.split('T')[0] : null) || '');
+          const slot = ev.slot || ev.period || ev.timeSlot || '';
+          if (slot === 'morning') e1 = new Date(`${d}T12:00`);
+          else if (slot === 'afternoon') e1 = new Date(`${d}T17:00`);
+          else e1 = new Date(`${d}T17:00`);
+        }
+
+        if (!e1 || isNaN(e1)) return;
+        if (buildOverlap(s0, e0, s1, e1)) {
+          conflicts.push({
+            kind: '出差/行程',
+            type: (ev.item || ev.tag || ev.title || ev.work || '').toString(),
+            start: s1,
+            end: e1
+          });
+        }
+      });
+
+      // 排序：時間早的在前
+      conflicts.sort((a, b) => a.start - b.start);
+      return conflicts;
+
+    } catch (err) {
+      // 安全模式：錯誤不阻擋
+      console.warn('Deputy conflict check failed (safe allow):', err);
+      return [];
+    }
+  };
+
+  const getDeputySuggestions = (start, end, excludeId) => {
+    try {
+      if (!start || !end) return [];
+      const s0 = toDateSafe(start);
+      const e0 = toDateSafe(end);
+      if (!s0 || !e0 || isNaN(s0) || isNaN(e0) || e0 <= s0) return [];
+
+      const list = (users || [])
+        .filter(u => u && (u.docId || u.id))
+        .filter(u => String(u.docId || u.id) !== String(excludeId))
+        .filter(u => String(u.docId || u.id) !== String(user.docId || user.uid)) // 不推薦自己當職代
+        .map(u => {
+          const uid = u.docId || u.id;
+          const join = u.joinDate || u.startWorkDate || u.hireDate || u.entryDate || u.createdAt || u.createdTime;
+          const joinD = join ? new Date(join) : null;
+          const seniorKey = joinD && !isNaN(joinD) ? joinD.getTime() : Number.POSITIVE_INFINITY;
+          return { uid, name: u.name || u.displayName || String(uid), seniorKey };
+        });
+
+      // 先依年資（越早到職越前），再依姓名
+      list.sort((a, b) => (a.seniorKey - b.seniorKey) || a.name.localeCompare(b.name, 'zh-Hant'));
+
+      const available = [];
+      for (const u of list) {
+        const c = getDeputyConflicts(u.uid, start, end);
+        if (c.length === 0) available.push(u);
+        if (available.length >= 5) break;
+      }
+      return available;
+    } catch (err) {
+      console.warn('Deputy suggestions failed:', err);
+      return [];
+    }
+  };
+
+  const buildDeputyConflictAlert = (deputyId, start, end) => {
+    const conflicts = getDeputyConflicts(deputyId, start, end);
+    if (!conflicts.length) return null;
+
+    const deputyName = (users || []).find(u => String(u.docId || u.id) === String(deputyId))?.name || '該職代';
+    const lines = conflicts.map(c => `${c.kind}${c.type ? `(${c.type})` : ''}：${fmtDT(c.start)} ~ ${fmtDT(c.end)}`);
+
+    const suggestions = getDeputySuggestions(start, end, deputyId);
+    const sugLine = suggestions.length ? `\n\n推薦可用職代（依年資排序）：\n- ${suggestions.map(s => s.name).join('\n- ')}` : '';
+
+    return `【職代防呆】${deputyName} 在申請時段已有排程重疊，請更換人員。\n\n重疊時段：\n- ${lines.join('\n- ')}${sugLine}`;
+  };
+
+const handleTaskSubmit = async (taskData, taskId) => { setSubmittingTaskId(taskId); try { const now = new Date(); const _msg = buildDeputyConflictAlert(taskData.deputyId, taskData.start, taskData.end);
+if(_msg){ alert(_msg); return; }
 await crud.createLeave({ ...taskData, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, status: 'pending', timestamp: now, submittedAt: now });
 // (送出申請不發mail)
 alert("差單已送出，已顯示在日曆上！"); } catch (e) { alert("送出失敗"); } finally { setSubmittingTaskId(null); } }
@@ -1475,7 +1574,8 @@ let usedCompensatory = 0;
 leaves.forEach(l => { if ((l.requesterId === user.uid || l.requesterId === user.docId) && l.status === 'approved' && l.type === '補休') { usedCompensatory += Number(l.hours); } });
 const balance = totalOvertime - usedCompensatory;
 if (finalHours > balance) { alert(`補休時數不足！\n目前可用餘額: ${balance} 小時\n您申請時數: ${finalHours} 小時`); return; }}
-if(hasDeputyConflict(form.deputyId, finalStart, finalEnd)){ alert('【職代防呆】所選職代於該時段已安排出差/請假，請更換人員。'); return; }
+const _msg = buildDeputyConflictAlert(form.deputyId, finalStart, finalEnd);
+if(_msg){ alert(_msg); return; }
 setIsSubmitting(true);
 try {
 await crud.createLeave({ ...form, requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, start: finalStart, end: finalEnd, hours: finalHours, status: 'pending', timestamp: new Date(), submittedAt: new Date() });
