@@ -142,7 +142,12 @@ async function fetchWeatherForLocations() {
   const todayKey = `weather_cache_${getLocalDateString()}`;
   try {
     const cached = localStorage.getItem(todayKey);
-    if (cached) return JSON.parse(cached);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      // 若快取是在離線/失敗時寫入，可能沒有 week 預報資料；此時忽略快取改為重新抓取
+      const ok = Array.isArray(parsed) && parsed.length > 0 && parsed.every(x => Array.isArray(x?.week) && x.week.length > 0);
+      if (ok) return parsed;
+    }
   } catch {}
 
   const results = [];
@@ -178,7 +183,7 @@ async function fetchWeatherForLocations() {
         _raw: { temp, wind, rain, uv, curCode }
       });
     } catch (e) {
-      results.push({ location: loc.location, temp:'—', wind:'—', rain:'—', uv:'—', _raw:{} });
+      results.push({ location: loc.location, temp:'—', wind:'—', rain:'—', uv:'—', week: [], _raw:{} });
     }
   }
 
@@ -948,6 +953,11 @@ return (
       </button>
     </div>
     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
+      {(!Array.isArray(weatherList[expandedWeatherIdx].week) || weatherList[expandedWeatherIdx].week.length===0) && (
+        <div className="col-span-2 md:col-span-4 lg:col-span-7 text-sm text-gray-600 bg-yellow-50 border border-yellow-100 rounded-lg p-3">
+          目前沒有取得預報資料（可能是首次載入時網路不穩而快取了空資料）。請點右上角「重新取得」，或稍後再試。
+        </div>
+      )}
       {(weatherList[expandedWeatherIdx].week || []).map((d, idx) => (
         <div key={idx} className="bg-gray-50 border border-gray-100 rounded-lg p-2">
           <div className="text-xs font-bold text-gray-700">{String(d.date||'').slice(5)}</div>
