@@ -2213,7 +2213,10 @@ return (
               // 導到第二區塊，並預選加班假別
               setForm(f => ({ ...f, type: overtimeTypeName || f.type }));
               setTimeout(() => block2Ref.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
-            }}
+                      setShowOfficialTypes(true);
+                      setTypeError(false);
+                      setForm(prev => ({ ...prev, type: '加班(不列計)' }));
+}}
             className="px-3 py-1.5 rounded-lg bg-indigo-700 text-white text-xs font-bold hover:bg-indigo-800"
             title="加班申請不會顯示在日曆，請由此入口送出"
           >
