@@ -1969,8 +1969,8 @@ const [openBlock2, setOpenBlock2] = useState(false);
 const block2Ref = useRef(null);
 const officialTypes = leaveTypes.filter(t => t.category === 'official');
 const personalTypes = leaveTypes.filter(t => t.category === 'personal');
-const [showOfficialTypes, setShowOfficialTypes] = useState(false);
-const [typeError, setTypeError] = useState(false);
+  const [showOfficialTypes, setShowOfficialTypes] = useState(false);
+  const [typeError, setTypeError] = useState(false);
 const overtimeTypeName = officialTypes.find(t => (t.name||'').includes('加班'))?.name || '加班';
 const currentTypeDesc = leaveTypes.find(t => t.name === form.type)?.desc || '';
 const pendingExternalTasks = useMemo(() => {
@@ -2131,7 +2131,6 @@ await crud.createLeave({ ...taskData, requesterId: user.docId || user.uid, reque
 alert("差單已送出，已顯示在日曆上！"); } catch (e) { alert("送出失敗"); } finally { setSubmittingTaskId(null); } }
 const handleManualSubmit = async (e) => {
 e.preventDefault();
-if (!form.type) { setTypeError(true); alert('請先選擇假別'); return; }
 let finalStart = form.start;
 let finalEnd = form.end;
 let finalHours = hours;
@@ -2187,8 +2186,8 @@ await crud.createLeave({ ...form, requesterId: user.docId || user.uid, requester
 // (送出申請不發mail)
 alert("請假單已送出，已同步顯示在日曆上！");
 setForm({ type: '', start:'', end:'', reason:'', deputyId:'' });
-setShowOfficialTypes(false);
-setTypeError(false);
+      setShowOfficialTypes(false);
+      setTypeError(false);
 setSlotDate(getLocalDateString());
 setSlotType('all_day');
 } catch (e) { alert("送出失敗，請稍後再試。"); } finally { setIsSubmitting(false); }
@@ -2316,7 +2315,7 @@ return (
                 {showOfficialTypes && officialTypes.map(t => (
                   <option key={t.id} value={t.name}>{t.name}</option>
                 ))}
-</select>
+              </select>
 
               {typeError && !form.type && (
                 <div className="mt-2 text-xs text-red-700 bg-red-50 p-2 rounded border border-red-100">
@@ -2330,6 +2329,40 @@ return (
                 </div>
               )}
             </div>
+
+            <div className="bg-gray-50 border border-gray-100 p-4 rounded-xl space-y-4">
+              <div className="flex bg-gray-200/60 p-1 rounded-lg w-full md:w-fit mx-auto md:mx-0">
+                <button type="button" onClick={() => setInputMode('slot')} className={`flex-1 md:flex-none px-5 py-2 text-sm font-bold rounded-md transition-all ${inputMode === 'slot' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>簡易時段</button>
+                <button type="button" onClick={() => setInputMode('manual')} className={`flex-1 md:flex-none px-5 py-2 text-sm font-bold rounded-md transition-all ${inputMode === 'manual' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>自訂時間</button>
+              </div>
+
+              {inputMode === 'slot' ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs font-bold text-gray-600 block mb-1">日期</label>
+                    <input type="date" className="w-full border p-2 rounded-lg bg-white" value={slotDate} onChange={e=>setSlotDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-gray-600 block mb-1">時段</label>
+                    <div className="flex gap-2">
+                      {[
+                        { id:'morning', label:'上午 4小時' },
+                        { id:'afternoon', label:'下午 4小時' },
+                        { id:'all_day', label:'整天 8小時' },
+                      ].map(s => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={()=>setSlotType(s.id)}
+                          className={`flex-1 px-3 py-2 rounded-lg border text-sm font-bold transition ${
+                            slotType===s.id ? 'bg-blue-600 text-white border-blue-700 shadow' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          {s.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4">
