@@ -148,13 +148,25 @@ async function fetchWeatherForLocations() {
   const results = [];
   for (const loc of WEATHER_LOCATIONS) {
     try {
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&current=temperature_2m,wind_speed_10m&daily=precipitation_probability_max,uv_index_max&timezone=Asia%2FTaipei`;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}&current=temperature_2m,wind_speed_10m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,uv_index_max&forecast_days=7&timezone=Asia%2FTaipei`;
       const r = await fetch(url);
       const j = await r.json();
       const temp = j?.current?.temperature_2m;
       const wind = j?.current?.wind_speed_10m;
+      const curCode = j?.current?.weather_code;
       const rain = j?.daily?.precipitation_probability_max?.[0];
       const uv = j?.daily?.uv_index_max?.[0];
+
+      const daily = j?.daily || {};
+      const times = Array.isArray(daily.time) ? daily.time : [];
+      const week = times.slice(0, 7).map((t, idx) => ({
+        date: t,
+        tmax: daily.temperature_2m_max?.[idx],
+        tmin: daily.temperature_2m_min?.[idx],
+        rain: daily.precipitation_probability_max?.[idx],
+        uv: daily.uv_index_max?.[idx],
+        code: daily.weather_code?.[idx],
+      }));
 
       results.push({
         location: loc.location,
@@ -162,7 +174,8 @@ async function fetchWeatherForLocations() {
         wind: (typeof wind === 'number') ? `${Math.round(wind)} km/h` : '—',
         rain: (typeof rain === 'number') ? `${Math.round(rain)}%` : '—',
         uv: (typeof uv === 'number') ? `${Math.round(uv)}` : '—',
-        _raw: { temp, wind, rain, uv }
+        week,
+        _raw: { temp, wind, rain, uv, curCode }
       });
     } catch (e) {
       results.push({ location: loc.location, temp:'—', wind:'—', rain:'—', uv:'—', _raw:{} });
@@ -253,6 +266,12 @@ const TIME_SLOTS = [
 { id: 'morning', label: '上午', color: 'bg-sky-100 text-sky-900 border-sky-200' },
 { id: 'afternoon', label: '下午', color: 'bg-sky-200 text-sky-950 border-sky-300' },
 { id: 'all_day', label: '整天', color: 'bg-sky-600 text-white border-sky-700' },];
+const WORK_SHIFT_PRESETS = [
+  { id: 'standard', label: '08:00-17:00', start: '08:00', end: '17:00' },
+  { id: 'early', label: '07:00-16:00', start: '07:00', end: '16:00' },
+];
+const getShiftById = (id) => WORK_SHIFT_PRESETS.find(s => s.id === id) || WORK_SHIFT_PRESETS[0];
+
 const DEFAULT_AREA_COLORS = {
 "高雄-身障": "bg-red-100 text-red-800",
 "屏東-身障": "bg-yellow-100 text-yellow-800",
@@ -794,6 +813,7 @@ ${isDesktopCollapsed ? 'md:w-20' : 'md:w-64'}
 function Dashboard({ user, leaves, calendarEvents, setView, leaveTypes }) {
 const [weeksToShow, setWeeksToShow] = useState(1);
 const [weatherData, setWeatherData] = useState([]);
+const [expandedWeatherIdx, setExpandedWeatherIdx] = useState(null);
 useEffect(() => {
   let alive = true;
   fetchWeatherForLocations().then(d => { if (alive) setWeatherData(d || []); });
@@ -896,16 +916,43 @@ return (
 <p className="text-sm text-gray-500 font-medium">{today.getFullYear()}/{today.getMonth()+1}/{today.getDate()} ({weekDays[today.getDay()]})</p></div>
 <div className="flex gap-3 overflow-x-auto w-full md:w-auto pb-2">
 {weatherList.map((w,i)=>(
-<div key={i} className="min-w-[110px] bg-gray-50 p-3 rounded-xl flex flex-col items-center border border-gray-100 shadow-sm">
+<div key={i} onClick={() => setExpandedWeatherIdx(expandedWeatherIdx===i ? null : i)} className="min-w-[110px] bg-gray-50 p-3 rounded-xl flex flex-col items-center border border-gray-100 shadow-sm cursor-pointer hover:bg-gray-100 transition">
 <div className="flex items-center gap-2 mb-1">
 <span className="text-sm font-bold text-gray-700">{w.location}</span>
-{getWeatherIcon(w?._raw?.rain ?? parseFloat(String(w?.rain||'').replace('%','')))}</div>
+{getWeatherIcon(w?._raw?.rain ?? parseFloat(String(w?.rain||'').replace('%','')))}
+<ChevronDown size={14} className={`text-gray-400 transition ${expandedWeatherIdx===i ? 'rotate-180' : ''}`} />
+</div>
 <span className="text-xl font-black text-gray-800 mb-1">{w.temp}</span>
 <div className="flex flex-wrap justify-center gap-1 text-[10px] font-medium text-gray-600">
 <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded" title="降雨機率">☔ {w.rain}</span>
 <span className="bg-gray-200 px-1.5 py-0.5 rounded" title={`風速：${(w?._raw?.wind ?? "—")} km/h`}>🌬️ {windLevelText(w?._raw?.wind)} {typeof (w?._raw?.wind) === "number" ? `(${Math.round(w._raw.wind)}km/h)` : ""}</span>
 <span className="bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded" title={`紫外線指數：${(w?._raw?.uv ?? "—")}`}>UV {uvLevelText(w?._raw?.uv)} {typeof (w?._raw?.uv) === "number" ? `(${Math.round(w._raw.uv)})` : ""}</span></div></div>
-))}</div></div>
+))}{expandedWeatherIdx !== null && weatherList[expandedWeatherIdx] && (
+  <div className="mt-3 bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+    <div className="flex items-center justify-between mb-3">
+      <div className="font-bold text-gray-800">
+        {weatherList[expandedWeatherIdx].location}：未來一週預報
+      </div>
+      <button type="button" className="text-sm text-gray-500 hover:text-gray-700" onClick={() => setExpandedWeatherIdx(null)}>
+        收合
+      </button>
+    </div>
+    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
+      {(weatherList[expandedWeatherIdx].week || []).map((d, idx) => (
+        <div key={idx} className="bg-gray-50 border border-gray-100 rounded-lg p-2">
+          <div className="text-xs font-bold text-gray-700">{String(d.date||'').slice(5)}</div>
+          <div className="text-[11px] text-gray-600 mt-1">🌡️ {typeof d.tmin==='number' ? Math.round(d.tmin) : '—'}~{typeof d.tmax==='number' ? Math.round(d.tmax) : '—'}°C</div>
+          <div className="text-[11px] text-gray-600">☔ {typeof d.rain==='number' ? Math.round(d.rain) : '—'}%</div>
+          <div className="text-[11px] text-gray-600">UV {typeof d.uv==='number' ? Math.round(d.uv) : '—'}</div>
+        </div>
+      ))}
+    </div>
+    <div className="text-[11px] text-gray-500 mt-3">
+      資料來源：Open‑Meteo（以座標抓取，與中央氣象署可能因模型/測站不同而有差異）。
+    </div>
+  </div>
+)}
+</div></div>
 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
 <div className="bg-white p-5 rounded-lg shadow-sm border-l-4 border-blue-500 h-full flex flex-col"><h3 className="text-gray-500 text-sm font-medium">今日外勤</h3><span className="text-2xl font-bold text-blue-700 block mt-1 mb-2">{uniqueExternalDetails.length} 人</span><div className="text-xs text-gray-500 mt-auto flex flex-wrap gap-1">{uniqueExternalDetails.length > 0 ? uniqueExternalDetails.map((detail, i) => <span key={i} className="bg-blue-50 px-1.5 py-0.5 rounded border">{detail}</span>) : '無排定外勤'}</div></div>
 <div className="bg-white p-5 rounded-lg shadow-sm border-l-4 border-green-500 h-full flex flex-col"><h3 className="text-gray-500 text-sm font-medium">今日請假</h3><span className="text-2xl font-bold text-green-700 block mt-1 mb-2">{todayLeavesDetails.length} 人</span><div className="text-xs text-gray-500 mt-auto flex flex-wrap gap-1">{todayLeavesDetails.length > 0 ? todayLeavesDetails.map((detail, i) => <span key={i} className="bg-green-50 px-1.5 py-0.5 rounded border">{detail}</span>) : '全體出勤'}</div></div>
@@ -1582,19 +1629,183 @@ link.href = encodeURI("data:text/csv;charset=utf-8,"+csv);
 link.download = `${user.name}_${month}_排班表.csv`;
 link.click();
 };
-const handleRecallLeave = async (leaveId, currentStatus) => {
-const reason = prompt('撤回原因（可留空）：','') || '';
-if(!confirm(`確定要撤回這筆請假單嗎？
-(狀態：${currentStatus})
+// --- 重新送審：由「撤回」改為「先修改內容，再重新送出」 ---
+const [editOpen, setEditOpen] = useState(false);
+const [editTarget, setEditTarget] = useState(null);
+const [editSubmitting, setEditSubmitting] = useState(false);
+const [editForm, setEditForm] = useState({ type:'', start:'', end:'', hours:0, reason:'', deputyId:'' });
 
-撤回後將標記為「已撤回」，並保留紀錄。`)) return;
-try {
-  await crud.updateLeave(leaveId, { status: 'pending', deputySignedAt: null, deputySignedBy: null, deputySignedByName: null, approverId: null, approvalDate: null, recallReason: reason, resubmittedAt: new Date() });
-  alert('假單已更新並重新送審！');
-} catch (e) { alert('撤回失敗: ' + e.message); }
+const toDTLocal = (s) => {
+  if (!s) return '';
+  try { return String(s).slice(0,16); } catch { return ''; }
 };
+
+const overlaps = (s1, e1, s2, e2) => {
+  try {
+    const a1 = new Date(s1).getTime();
+    const b1 = new Date(e1).getTime();
+    const a2 = new Date(s2).getTime();
+    const b2 = new Date(e2).getTime();
+    if ([a1,b1,a2,b2].some(x => !Number.isFinite(x))) return false;
+    return a1 <= b2 && a2 <= b1;
+  } catch { return false; }
+};
+
+const hasDeputyConflictLite = (deputyId, start, end, selfId) => {
+  if (!deputyId || !start || !end) return false;
+  return (leaves || []).some(l => {
+    if (!l) return false;
+    if (selfId && l.id === selfId) return false;
+    const isDeputy = (l.requesterId === deputyId) || (l.requesterDocId === deputyId) || (l.requesterUid === deputyId);
+    if (!isDeputy) return false;
+    if (!['pending','deputy_signed','approved'].includes(l.status)) return false;
+    return overlaps(start, end, l.start, l.end || l.start);
+  });
+};
+
+const openEditResubmit = (leaveObj) => {
+  if (!leaveObj) return;
+  setEditTarget(leaveObj);
+  setEditForm({
+    type: leaveObj.type || '',
+    start: toDTLocal(leaveObj.start),
+    end: toDTLocal(leaveObj.end),
+    hours: Number(leaveObj.hours || 0),
+    reason: leaveObj.reason || '',
+    deputyId: leaveObj.deputyId || ''
+  });
+  setEditOpen(true);
+};
+
+const handleEditResubmit = async () => {
+  if (!editTarget) return;
+  const start = editForm.start;
+  const end = editForm.end;
+  const hours = Number(editForm.hours || 0);
+  if (!editForm.type) { alert('請選擇假別'); return; }
+  if (!start || !end) { alert('請選擇開始與結束時間'); return; }
+  if (hours <= 0) { alert('時數必須大於 0'); return; }
+  if (hasDeputyConflictLite(editForm.deputyId, start, end, editTarget.id)) {
+    alert('【職代防呆】所選職代於該時段已安排請假/審核中，請更換人員。');
+    return;
+  }
+  if (!confirm('確定要以修改後內容重新送出嗎？')) return;
+
+  setEditSubmitting(true);
+  try {
+    await crud.updateLeave(editTarget.id, {
+      type: editForm.type,
+      start,
+      end,
+      hours,
+      reason: editForm.reason || '',
+      deputyId: editForm.deputyId || '',
+      // 重新送審：清除前次簽核痕跡
+      status: 'pending',
+      deputySignedAt: null,
+      deputySignedBy: null,
+      deputySignedByName: null,
+      approverId: null,
+      approvalDate: null,
+      resubmittedAt: new Date()
+    });
+    alert('已更新內容並重新送審！');
+    setEditOpen(false);
+    setEditTarget(null);
+  } catch (e) {
+    alert('更新失敗: ' + (e?.message || e));
+  } finally {
+    setEditSubmitting(false);
+  }
+};
+
+const handleDeleteLeave = async (leaveObj) => {
+  if (!leaveObj) return;
+  if (leaveObj.status === 'approved') {
+    alert('此假單已核准，為避免紀錄遺失，不提供刪除。若需調整請使用「修改後重新送出」。');
+    return;
+  }
+  if (!confirm('確定要刪除此筆請假申請嗎？刪除後將無法復原。')) return;
+  try {
+    await crud.deleteLeave(leaveObj.id);
+    alert('已刪除申請。');
+  } catch (e) {
+    alert('刪除失敗: ' + (e?.message || e));
+  }
+};
+
+
 return (
 <div className="max-w-6xl mx-auto space-y-6">
+{editOpen && (
+  <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-3">
+    <div className="bg-white w-full max-w-xl rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+      <div className="px-5 py-4 border-b flex items-center justify-between">
+        <div>
+          <div className="font-black text-gray-800">修改請假內容</div>
+          <div className="text-xs text-gray-500">修改完成後，會以「待審」重新送出（職代/組長重新審核）。</div>
+        </div>
+        <button className="text-gray-400 hover:text-gray-700" onClick={()=>{ if(!editSubmitting){ setEditOpen(false); setEditTarget(null);} }}><X size={18}/></button>
+      </div>
+
+      <div className="p-5 space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-bold text-gray-600">假別</label>
+            <select className="w-full mt-1 border rounded-lg px-3 py-2 bg-gray-50" value={editForm.type} onChange={(e)=>setEditForm(f=>({ ...f, type:e.target.value }))}>
+              <option value="">請選擇</option>
+              {(leaveTypes||[]).map(t => <option key={t.id || t.name} value={t.name}>{t.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-600">職代</label>
+            <select className="w-full mt-1 border rounded-lg px-3 py-2 bg-gray-50" value={editForm.deputyId} onChange={(e)=>setEditForm(f=>({ ...f, deputyId:e.target.value }))}>
+              <option value="">（可不填）</option>
+              {(users||[]).filter(u=> (u.uid||u.docId) !== (user.uid||user.docId)).map(u => (
+                <option key={u.docId || u.uid} value={u.docId || u.uid}>{u.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-bold text-gray-600">開始時間</label>
+            <input type="datetime-local" className="w-full mt-1 border rounded-lg px-3 py-2 bg-gray-50" value={editForm.start} onChange={(e)=>setEditForm(f=>({ ...f, start:e.target.value }))}/>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-600">結束時間</label>
+            <input type="datetime-local" className="w-full mt-1 border rounded-lg px-3 py-2 bg-gray-50" value={editForm.end} onChange={(e)=>setEditForm(f=>({ ...f, end:e.target.value }))}/>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs font-bold text-gray-600">時數</label>
+            <input type="number" min="0" step="0.5" className="w-full mt-1 border rounded-lg px-3 py-2 bg-gray-50" value={editForm.hours} onChange={(e)=>setEditForm(f=>({ ...f, hours:e.target.value }))}/>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-600">事由</label>
+            <input className="w-full mt-1 border rounded-lg px-3 py-2 bg-gray-50" value={editForm.reason} onChange={(e)=>setEditForm(f=>({ ...f, reason:e.target.value }))} placeholder="（可留空）"/>
+          </div>
+        </div>
+
+        <div className="text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-lg p-3">
+          提醒：此動作會清除前次簽核狀態，並以「待審」重新送出；通知信仍只會在最終核准時寄出。
+        </div>
+      </div>
+
+      <div className="px-5 py-4 border-t flex items-center justify-end gap-2 bg-gray-50">
+        <button disabled={editSubmitting} className="px-4 py-2 rounded-lg border bg-white hover:bg-gray-100 text-gray-700 font-bold" onClick={()=>{ if(!editSubmitting){ setEditOpen(false); setEditTarget(null);} }}>取消</button>
+        <button disabled={editSubmitting} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-black flex items-center gap-2" onClick={handleEditResubmit}>
+          {editSubmitting ? <Loader2 className="animate-spin" size={18}/> : <Check size={18}/>}
+          重新送出
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
 <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-white p-4 rounded shadow-sm gap-4">
 <div className="flex items-center gap-4 flex-wrap">
 <h2 className="text-xl font-bold flex items-center gap-2"><FileText/> 請假與職代狀況</h2>
@@ -1640,7 +1851,16 @@ return (
 <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold leading-tight ${r.status === '缺公務單' ? 'bg-red-100 text-red-700' : r.status === '異常公出' || ['假別不符', '已駁回', '已撤銷'].includes(r.status) ? 'bg-amber-100 text-amber-700' : ['待職代審查中', '組長審查中'].includes(r.status) ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
 {r.status === '異常公出' ? '異常公出 (請確認日曆人員)' : r.status}</span></td>
 <td className="p-4 text-center">
-{canRecall && (<button onClick={() => handleRecallLeave(r.rawLeave.id, r.rawLeave.status)} className="text-red-600 hover:text-white border border-red-200 bg-red-50 hover:bg-red-500 px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1 mx-auto shadow-sm" title="撤回此請假單(已核准亦可)"><Undo size={14}/> 撤回</button>)}</td></tr>)
+{canRecall && (
+  <div className="flex items-center justify-center gap-2">
+    <button onClick={() => openEditResubmit(r.rawLeave)} className="text-blue-700 hover:text-white border border-blue-200 bg-blue-50 hover:bg-blue-600 px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1 shadow-sm" title="修改請假內容並重新送出">
+      <Edit2 size={14}/> 修改後送出
+    </button>
+    <button onClick={() => handleDeleteLeave(r.rawLeave)} className="text-red-600 hover:text-white border border-red-200 bg-red-50 hover:bg-red-500 px-3 py-1.5 rounded-md text-xs font-bold transition flex items-center gap-1 shadow-sm" title="刪除申請(未核准才可)">
+      <Trash2 size={14}/> 刪除
+    </button>
+  </div>
+)}</td></tr>)
 })}
 {filteredRows.length === 0 && <tr><td colSpan="12" className="p-8 text-center text-gray-400">尚無符合條件的出勤資料</td></tr>}</tbody></table></div>
 ) : (
@@ -1708,15 +1928,29 @@ const [hours, setHours] = useState(0);
 const [inputMode, setInputMode] = useState('slot'); // 'slot' (簡易時段) 或 'manual' (自訂時間)
 const [slotDate, setSlotDate] = useState(getLocalDateString());
 const [slotType, setSlotType] = useState('all_day');
-// 新增：自訂時間（以「起始日期 + 天數」為主，1天=8小時）
-const [manualDate, setManualDate] = useState(getLocalDateString());
-const [manualDays, setManualDays] = useState(1);
-const [manualAdvanced, setManualAdvanced] = useState(false);
+// 自訂時間：分為「少於一天」與「大於一天」兩種
+const [manualRangeType, setManualRangeType] = useState('lt1'); // 'lt1' 少於一天；'gt1' 大於一天（以天計，1天=8小時）
+// 少於一天：日期 + 起訖時間（下拉選單）
+const [shortDate, setShortDate] = useState(getLocalDateString());
+const [shortStartH, setShortStartH] = useState('08');
+const [shortStartM, setShortStartM] = useState('00');
+const [shortEndH, setShortEndH] = useState('17');
+const [shortEndM, setShortEndM] = useState('00');
+// 大於一天：起始日期 + 天數（1天=8小時），並產生可確認的日期清單（自動避開例假日/週末）
+const [multiStartDate, setMultiStartDate] = useState(getLocalDateString());
+const [multiDays, setMultiDays] = useState(1);
+const [multiDates, setMultiDates] = useState([]); // [{date, isWeekend}]
+const [multiSelected, setMultiSelected] = useState({}); // { [date]: boolean }
+// 上班時段設定（預設 08:00-17:00；可提早一小時 07:00-16:00）
+const [workShift, setWorkShift] = useState(() => {
+  try { return localStorage.getItem('workShift') || 'standard'; } catch { return 'standard'; }
+});
+useEffect(() => { try { localStorage.setItem('workShift', workShift); } catch {} }, [workShift]);
 
 const [isSubmitting, setIsSubmitting] = useState(false);
 const [submittingTaskId, setSubmittingTaskId] = useState(null);
 const [openBlock1, setOpenBlock1] = useState(true);
-const [openBlock2, setOpenBlock2] = useState(true);
+const [openBlock2, setOpenBlock2] = useState(false);
 const block2Ref = useRef(null);
 const officialTypes = leaveTypes.filter(t => t.category === 'official');
 const personalTypes = leaveTypes.filter(t => t.category === 'personal');
@@ -1751,45 +1985,58 @@ pending.push({ id: g.tag.groupId, date: d, slot: g.tag.slot, item: g.tag.item, a
 return pending.sort((a,b) => a.date.localeCompare(b.date));
 }, [events, leaves, user]);
 useEffect(() => {
-  // 進階自訂：依起訖時間計算（同日扣午休 12:00-13:00；跨日以天數*8）
-  if(form.start && form.end) {
-    const s = new Date(form.start);
-    const e = new Date(form.end);
-    if(!isNaN(s.getTime()) && !isNaN(e.getTime()) && e > s) {
-      const sd = form.start.split('T')[0];
-      const ed = form.end.split('T')[0];
-      let h = 0;
-      if (sd === ed) {
-        h = (e - s) / 36e5;
-        // 扣除午休重疊
-        const lunchS = new Date(sd + 'T12:00');
-        const lunchE = new Date(sd + 'T13:00');
-        const ov = Math.max(0, Math.min(e.getTime(), lunchE.getTime()) - Math.max(s.getTime(), lunchS.getTime()));
-        h = h - (ov / 36e5);
-        h = Math.max(0, Math.min(8, h));
-      } else {
-        const sd0 = new Date(sd + 'T00:00');
-        const ed0 = new Date(ed + 'T00:00');
-        const days = Math.floor((ed0 - sd0) / 86400000) + 1;
-        h = Math.max(0, days) * 8;
-      }
-      setHours(Math.max(0, Math.round(h*2)/2));
-    }
-  }
-}, [form.start, form.end]);
+  // 少於一天：依起訖時間計算（同日扣午休 12:00-13:00）
+  if (inputMode !== 'manual') return;
+  if (manualRangeType !== 'lt1') return;
+  const d = String(shortDate || '');
+  if (!d) { setHours(0); return; }
+  const ss = `${d}T${String(shortStartH).padStart(2,'0')}:${String(shortStartM).padStart(2,'0')}`;
+  const ee = `${d}T${String(shortEndH).padStart(2,'0')}:${String(shortEndM).padStart(2,'0')}`;
+  const s = new Date(ss);
+  const e = new Date(ee);
+  if (isNaN(s.getTime()) || isNaN(e.getTime()) || e <= s) { setHours(0); return; }
+  let h = (e - s) / 36e5;
+  // 扣除午休重疊（12:00-13:00）
+  const lunchS = new Date(d + 'T12:00');
+  const lunchE = new Date(d + 'T13:00');
+  const ov = Math.max(0, Math.min(e.getTime(), lunchE.getTime()) - Math.max(s.getTime(), lunchS.getTime()));
+  h = h - (ov / 36e5);
+  h = Math.max(0, Math.min(8, h));
+  setHours(Math.max(0, Math.round(h*2)/2));
+}, [inputMode, manualRangeType, shortDate, shortStartH, shortStartM, shortEndH, shortEndM]);
 
 useEffect(() => {
-  // 基礎自訂：起始日期 + 天數（固定 1 天 = 8 小時）
+  // 大於一天：起始日期 + 天數（1天=8小時），自動避開週末，產生可確認的日期清單
   if (inputMode !== 'manual') return;
-  if (manualAdvanced) return;
-  const d = String(manualDate || '');
-  const n = Math.max(1, Number(manualDays || 1));
-  if (!d) return;
-  setHours(n * 8);
-}, [inputMode, manualDate, manualDays, manualAdvanced]);
+  if (manualRangeType !== 'gt1') return;
+  const sd = String(multiStartDate || '');
+  const n = Math.max(1, Number(multiDays || 1));
+  if (!sd) { setMultiDates([]); setMultiSelected({}); setHours(0); return; }
+  let cur = new Date(sd + 'T00:00');
+  const picked = [];
+  let guard = 0;
+  while (picked.length < n && guard < 800) {
+    const ds = getLocalDateString(cur);
+    const day = cur.getDay(); // 0=Sun,6=Sat
+    const isWeekend = (day === 0 || day === 6);
+    if (!isWeekend) picked.push({ date: ds, isWeekend: false });
+    cur.setDate(cur.getDate() + 1);
+    guard++;
+  }
+  const sel = {};
+  picked.forEach(x => { sel[x.date] = true; });
+  setMultiDates(picked);
+  setMultiSelected(sel);
+  setHours(picked.length * 8);
+}, [inputMode, manualRangeType, multiStartDate, multiDays]);
 
-
-  // 職代防呆：職代於同時段已安排出差/請假則禁止選擇
+useEffect(() => {
+  if (inputMode !== 'manual') return;
+  if (manualRangeType !== 'gt1') return;
+  const cnt = (multiDates || []).filter(x => multiSelected && multiSelected[x.date]).length;
+  if (!isNaN(cnt)) setHours(cnt * 8);
+}, [inputMode, manualRangeType, multiDates, multiSelected]);
+// 職代防呆：職代於同時段已安排出差/請假則禁止選擇
   const hasDeputyConflict = (deputyId, start, end) => {
     if(!deputyId || !start || !end) return false;
     const s0 = new Date(start);
@@ -1844,18 +2091,26 @@ finalStart = `${slotDate}T08:00`;
 finalEnd = `${slotDate}T17:00`;
 finalHours = 8;}
 } else {
-  // 自訂時間：預設用「起始日期 + 天數」；若啟用進階則採用自訂起訖時間(可填到小時)
-  if (!manualAdvanced) {
-    if (!manualDate) { alert("請選擇起始日期"); return; }
-    const n = Math.max(1, Number(manualDays || 1));
-    const sd = String(manualDate);
-    const ed = (() => { try { const x = new Date(sd+'T00:00'); x.setDate(x.getDate() + (n-1)); return getLocalDateString(x); } catch { return sd; } })();
-    finalStart = `${sd}T08:00`;
-    finalEnd = `${ed}T17:00`;
-    finalHours = n * 8;
+  // 自訂時間：依「少於一天 / 大於一天」準備資料
+  if (manualRangeType === 'lt1') {
+    if (!shortDate) { alert("請選擇日期"); return; }
+    const ss = `${shortDate}T${String(shortStartH).padStart(2,'0')}:${String(shortStartM).padStart(2,'0')}`;
+    const ee = `${shortDate}T${String(shortEndH).padStart(2,'0')}:${String(shortEndM).padStart(2,'0')}`;
+    const s = new Date(ss);
+    const e = new Date(ee);
+    if (isNaN(s.getTime()) || isNaN(e.getTime()) || e <= s) { alert("結束時間需晚於開始時間"); return; }
+    if (hours <= 0) { alert("總計時數必須大於 0"); return; }
+    finalStart = ss;
+    finalEnd = ee;
+    finalHours = hours;
   } else {
-    if (!form.start || !form.end) { alert("請選擇開始與結束時間"); return; }
-    if (finalHours <= 0) { alert("總計時數必須大於 0"); return; }
+    if (!multiStartDate) { alert("請選擇起始日期"); return; }
+    const picked = (multiDates || []).filter(x => multiSelected && multiSelected[x.date]).map(x => x.date).sort();
+    if (!picked.length) { alert("請至少勾選一天"); return; }
+    const shift = getShiftById(workShift);
+    finalStart = `${picked[0]}T${shift.start}`;
+    finalEnd = `${picked[picked.length-1]}T${shift.end}`;
+    finalHours = picked.length * 8;
   }
 }
 if (form.type === '補休') {
@@ -2014,51 +2269,125 @@ return (
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs font-bold text-gray-600 block mb-1">起始日期</label>
-                      <input type="date" className="w-full border p-2 rounded-lg bg-white" value={manualDate} onChange={e=>setManualDate(e.target.value)} />
-                    </div>
-                    <div>
-                      <label className="text-xs font-bold text-gray-600 block mb-1">天數（1天=8小時）</label>
-                      <input type="number" min="1" className="w-full border p-2 rounded-lg bg-white" value={manualDays} onChange={e=>setManualDays(e.target.value)} />
-                    </div>
-                  </div>
+                <div className="space-y-4">
+  <div className="flex bg-gray-200/60 p-1 rounded-lg w-full md:w-fit mx-auto md:mx-0">
+    <button
+      type="button"
+      onClick={() => setManualRangeType('lt1')}
+      className={`flex-1 md:flex-none px-5 py-2 text-sm font-bold rounded-md transition-all ${manualRangeType === 'lt1' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+    >少於一天</button>
+    <button
+      type="button"
+      onClick={() => setManualRangeType('gt1')}
+      className={`flex-1 md:flex-none px-5 py-2 text-sm font-bold rounded-md transition-all ${manualRangeType === 'gt1' ? 'bg-white shadow text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}
+    >大於一天</button>
+  </div>
 
-                  <div className="text-sm bg-gray-50 border rounded-lg p-3 text-gray-700">
-                    <div className="font-bold mb-1">起訖時間（預設）</div>
-                    <div className="text-xs text-gray-600">
-                      {(() => {
-                        const d = String(manualDate || '');
-                        const n = Math.max(1, Number(manualDays || 1));
-                        if (!d) return '—';
-                        const sd = d;
-                        const ed = (() => { try { const x = new Date(d+'T00:00'); x.setDate(x.getDate() + (n-1)); return getLocalDateString(x); } catch { return d; } })();
-                        return `${sd} 08:00 ～ ${ed} 17:00（共 ${n*8} 小時）`;
-                      })()}
-                    </div>
-                    <div className="text-[11px] text-gray-500 mt-1">註：跨日以「天數×8小時」計算；若需要填到小時，請開啟進階。</div>
-                  </div>
+  {manualRangeType === 'lt1' ? (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label className="text-xs font-bold text-gray-600 block mb-1">日期</label>
+        <input type="date" className="w-full border p-2 rounded-lg bg-white" value={shortDate} onChange={e=>setShortDate(e.target.value)} />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-bold text-gray-600 block mb-1">起</label>
+          <div className="flex gap-2">
+            <select className="w-full border p-2 rounded-lg bg-white" value={shortStartH} onChange={e=>setShortStartH(e.target.value)}>
+              {Array.from({length:24}).map((_,i)=>{ const v=String(i).padStart(2,'0'); return <option key={v} value={v}>{v}</option>; })}
+            </select>
+            <select className="w-full border p-2 rounded-lg bg-white" value={shortStartM} onChange={e=>setShortStartM(e.target.value)}>
+              {['00','10','20','30','40','50'].map(v=><option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="text-xs font-bold text-gray-600 block mb-1">迄</label>
+          <div className="flex gap-2">
+            <select className="w-full border p-2 rounded-lg bg-white" value={shortEndH} onChange={e=>setShortEndH(e.target.value)}>
+              {Array.from({length:24}).map((_,i)=>{ const v=String(i).padStart(2,'0'); return <option key={v} value={v}>{v}</option>; })}
+            </select>
+            <select className="w-full border p-2 rounded-lg bg-white" value={shortEndM} onChange={e=>setShortEndM(e.target.value)}>
+              {['00','10','20','30','40','50'].map(v=><option key={v} value={v}>{v}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
 
-                  <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
-                    <input type="checkbox" checked={manualAdvanced} onChange={e=>setManualAdvanced(e.target.checked)} />
-                    需要填到小時（進階：自訂起訖時間）
-                  </label>
+      <div>
+        <label className="text-xs font-bold text-gray-600 block mb-1">班別</label>
+        <select className="w-full border p-2 rounded-lg bg-white" value={workShift} onChange={e=>setWorkShift(e.target.value)}>
+          {WORK_SHIFT_PRESETS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+        </select>
+        <div className="text-[11px] text-gray-500 mt-1">註：同日會自動扣除午休 12:00-13:00 重疊時數。</div>
+      </div>
+    </div>
+  ) : (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="text-xs font-bold text-gray-600 block mb-1">起始日期</label>
+          <input type="date" className="w-full border p-2 rounded-lg bg-white" value={multiStartDate} onChange={e=>setMultiStartDate(e.target.value)} />
+        </div>
+        <div>
+          <label className="text-xs font-bold text-gray-600 block mb-1">天數（1天=8小時）</label>
+          <input type="number" min="1" className="w-full border p-2 rounded-lg bg-white" value={multiDays} onChange={e=>setMultiDays(e.target.value)} />
+        </div>
+      </div>
 
-                  {manualAdvanced && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-xs font-bold text-gray-600 block mb-1">開始時間</label>
-                        <input type="datetime-local" className="w-full border p-2 rounded-lg bg-white" value={form.start} onChange={e=>setForm(prev=>({...prev, start:e.target.value}))} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-bold text-gray-600 block mb-1">結束時間</label>
-                        <input type="datetime-local" className="w-full border p-2 rounded-lg bg-white" value={form.end} onChange={e=>setForm(prev=>({...prev, end:e.target.value}))} />
-                      </div>
-                    </div>
-                  )}
-                </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="text-xs font-bold text-gray-600 block mb-1">班別</label>
+          <select className="w-full border p-2 rounded-lg bg-white" value={workShift} onChange={e=>setWorkShift(e.target.value)}>
+            {WORK_SHIFT_PRESETS.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+          <div className="text-[11px] text-gray-500 mt-1">註：以 1 天上限 8 小時計算（不含午休 1 小時）。</div>
+        </div>
+      </div>
+
+      <div className="text-sm bg-gray-50 border rounded-lg p-3 text-gray-700">
+        <div className="font-bold mb-2">日期確認（自動避開例假日/週末）</div>
+        {multiDates?.length ? (
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+            {multiDates.map(x => (
+              <label key={x.date} className="flex items-center gap-2 text-xs bg-white border rounded-lg px-2 py-1.5">
+                <input
+                  type="checkbox"
+                  checked={!!multiSelected?.[x.date]}
+                  onChange={e => setMultiSelected(prev => ({ ...(prev||{}), [x.date]: e.target.checked }))}
+                />
+                <span className="font-bold">{x.date}</span>
+              </label>
+            ))}
+          </div>
+        ) : (
+          <div className="text-xs text-gray-500">—</div>
+        )}
+        <div className="text-[11px] text-gray-500 mt-2">
+          已勾選 {(multiDates||[]).filter(x=>multiSelected?.[x.date]).length} 天（{(multiDates||[]).filter(x=>multiSelected?.[x.date]).length * 8} 小時）
+        </div>
+      </div>
+    </div>
+  )}
+
+  <div className="text-sm bg-gray-50 border rounded-lg p-3 text-gray-700">
+    <div className="font-bold mb-1">預覽</div>
+    <div className="text-xs text-gray-600">
+      {(() => {
+        try {
+          if (manualRangeType === 'lt1') {
+            if (!shortDate) return '—';
+            return `${shortDate} ${shortStartH}:${shortStartM} ～ ${shortDate} ${shortEndH}:${shortEndM}（共 ${hours} 小時）`;
+          }
+          const picked = (multiDates || []).filter(x => multiSelected?.[x.date]).map(x => x.date).sort();
+          if (!picked.length) return '—';
+          const sh = getShiftById(workShift);
+          return `${picked[0]} ${sh.start} ～ ${picked[picked.length-1]} ${sh.end}（共 ${picked.length*8} 小時）`;
+        } catch { return '—'; }
+      })()}
+    </div>
+  </div>
+</div>
               )}
             </div>
 
@@ -2097,15 +2426,16 @@ return (
                       const hrs   = (t === "all_day") ? 8 : 4;
                       return `預覽：${start} ～ ${end}（${hrs} 小時）`;
                     }
-                    const d = String(manualDate || "");
-                    const n = Math.max(1, Number(manualDays || 1));
-                    if (!d) return "請填寫起始日期";
-                    const sd = d;
-                    const ed = (() => { try { const x = new Date(d+"T00:00"); x.setDate(x.getDate() + (n-1)); return getLocalDateString(x); } catch { return d; } })();
-                    if (manualAdvanced && form.start && form.end) {
-                      return `預覽：${fmtISO(form.start)} ～ ${fmtISO(form.end)}（以自訂起訖為準）`;
+                    if (manualRangeType === "lt1") {
+                      if (!shortDate) return "請選擇日期";
+                      const s = `${shortDate} ${shortStartH}:${shortStartM}`;
+                      const e = `${shortDate} ${shortEndH}:${shortEndM}`;
+                      return `預覽：${s} ～ ${e}（${hours} 小時）`;
                     }
-                    return `預覽：${sd} 08:00 ～ ${ed} 17:00（${n*8} 小時）`;
+                    const picked = (multiDates || []).filter(x => multiSelected?.[x.date]).map(x => x.date).sort();
+                    if (!picked.length) return "請填寫起始日期與天數";
+                    const sh2 = getShiftById(workShift);
+                    return `預覽：${picked[0]} ${sh2.start} ～ ${picked[picked.length-1]} ${sh2.end}（${picked.length*8} 小時）`;
                   } catch {
                     return "";
                   }
@@ -2226,30 +2556,8 @@ const handleLeaderBulkApprove = async () => {
 };
 
 const handleDeputyAgree = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'deputy_signed', deputySignedAt: new Date(), deputySignedByName: currentUser.name || currentUser.displayName || '' });
-// --- Mail notify: deputy reviewed -> requester ---
-try {
-  const requesterEmail = (leave.requesterEmail||'').toLowerCase();
-  if (requesterEmail) {
-    await sendMail({
-      targetEmail: requesterEmail,
-      subject: "【差勤排班】你的差單已完成職代審查",
-      body: `你好 ${leave.requesterName||''}：
+// 職代審核通過：不寄信（全部審核完才通知申請者）
 
-你的差單已完成職代審查，等待主管核准。
-假別：${leave.type||''}
-假別時數：${(leave.hours!=null && leave.hours!=='') ? (leave.hours + ' 小時') : '—'}
-起訖：${fmtISO(leave.start)} ～ ${fmtISO(leave.end)}
-出差事由：${leave.reason||leave.note||''}
-
-時間序：
-1. 送出申請時間：${fmtDT(leave.submittedAt||leave.timestamp)}
-2. 職代人員：${leave.deputySignedByName || (currentUser.name||'—')}｜同意時間：${fmtDT(leave.deputySignedAt || new Date())}
-3. 組長：—｜同意時間：—
-
-（系統自動通知）`
-    });
-  }
-} catch (mailErr) { console.warn("mail notify (deputy_signed) failed:", mailErr); }
  } catch(e) { alert("操作失敗"); } finally { setProcessingId(null); } };
 const handleLeaderApprove = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'approved', approverId: currentUser.uid, approvedAt: new Date(), approvedByName: currentUser.name || currentUser.displayName || '' });
 // --- Mail notify: approved -> requester ---
