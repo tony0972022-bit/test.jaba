@@ -1589,8 +1589,8 @@ if(!confirm(`確定要撤回這筆請假單嗎？
 
 撤回後將標記為「已撤回」，並保留紀錄。`)) return;
 try {
-  await crud.updateLeave(leaveId, { status: 'recalled', recallReason: reason, recalledAt: new Date() });
-  alert('假單已成功撤回！');
+  await crud.updateLeave(leaveId, { status: 'pending', deputySignedAt: null, deputySignedBy: null, deputySignedByName: null, approverId: null, approvalDate: null, recallReason: reason, resubmittedAt: new Date() });
+  alert('假單已更新並重新送審！');
 } catch (e) { alert('撤回失敗: ' + e.message); }
 };
 return (
@@ -2303,11 +2303,17 @@ if(!recallModal.reason.trim()) { alert("請填寫撤簽原因！讓主管了解�
 setProcessingId(recallModal.leave.id);
 try {
 await crud.updateLeave(recallModal.leave.id, {
-status: 'withdrawn',
+status: 'pending',
+deputySignedAt: null,
+deputySignedBy: null,
+deputySignedByName: null,
+approverId: null,
+approvalDate: null,
 recallReason: recallModal.reason,
-note: (recallModal.leave.note ? recallModal.leave.note + ' | ' : '') + `[撤簽] ${recallModal.reason}`
+resubmittedAt: new Date(),
+note: (recallModal.leave.note ? recallModal.leave.note + ' | ' : '') + `[修改重送] ${recallModal.reason}`
 });
-alert("已成功撤銷假單！日曆上該時段已空出，請至「請假申請」重新送單。");
+alert("假單已更新並重新送審，請等待職代與主管審核。");
 setRecallModal({ open: false, leave: null, reason: '' });
 } catch(e) { alert("操作失敗"); }
 setProcessingId(null);
