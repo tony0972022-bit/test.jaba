@@ -725,7 +725,7 @@ deleteImportantItem: async (id) => deleteDoc(doc(db, 'artifacts', APP_ID, 'publi
 deleteEvent: async (id) => deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'calendar_events', id)),
 deleteEventsByGroup: async (gid) => {
 const toDel = calendarEvents.filter(e=>e.groupId===gid);
-toDel.forEach(e => deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'calendar_events', e.id)));},
+await Promise.all(toDel.map(e => deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'calendar_events', e.id))));},
 createLeave: async (d) => addDoc(collection(db, 'artifacts', APP_ID, 'public', 'data', 'leaves'), d),
 updateLeave: async (id, data) => updateDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'leaves', id), { ...data, approvalDate: new Date() }),
 deleteLeave: async (id) => deleteDoc(doc(db, 'artifacts', APP_ID, 'public', 'data', 'leaves', id))
@@ -1202,18 +1202,18 @@ return stats;
 }, [events, rotationRules]);
 const getNextRotationPerson = (matchTag) => {
 const rule = rotationRules.find(r => r.matchTag === matchTag);
-if (!rule) return null;
+if (!rule || !rule.order?.length) return null;
 const sortedEvents = [...events].filter(e => e.type === 'tag' && e.item === matchTag).sort((a,b) => new Date(b.date) - new Date(a.date));
-let next = rule.order[0];
-let lastDate = null;
-if (sortedEvents.length > 0) {
-lastDate = sortedEvents[0].date;
+if (sortedEvents.length === 0) {
+  return { user: users.find(u => u.name === rule.order[0]), lastDate: null };
+}
+const lastDate = sortedEvents[0].date;
 const lastGroup = sortedEvents[0].groupId;
 const pplInGroup = events.filter(e => e.groupId === lastGroup && e.type === 'person').map(e=>e.userName);
 const presentIndexes = pplInGroup.map(p => rule.order.indexOf(p)).filter(i => i !== -1);
-if (presentIndexes.length > 0) {
-const maxIndex = Math.max( ...presentIndexes);
-next = rule.order[(maxIndex + 1) % rule.order.length];}}
+const next = presentIndexes.length > 0
+  ? rule.order[(Math.max(...presentIndexes) + 1) % rule.order.length]
+  : rule.order[0];
 return { user: users.find(u => u.name === next), lastDate };
 };
 const rotationData = rotationRules.map(rule => {
@@ -1764,11 +1764,7 @@ if (isExternal && !myLeave) status = '缺公務單';
 else if (isExternal && isPersonalLeave) status = '假別不符';
 else if (!myWork.length && isOfficialLeave) status = '異常公出';
 else if (myLeave) {
-if (myLeave.status === 'pending') status = '待職代審查中';
-else if (myLeave.status === 'deputy_signed') status = '組長審查中';
-else if (myLeave.status === 'approved') status = '已核准';
-else if (myLeave.status === 'rejected') status = '退回/未通過';
-else if (myLeave.status === 'recalled' || myLeave.status === 'withdrawn') status = '已撤回';}
+status = getStatusLabel(myLeave.status);}
 else if (myWork.length > 0) status = '內勤';
 else status = '無行程';
 if (myWork.length > 0 || myLeave) { data.push({ name: user.name, date: dateStr, work: myWork, leave: myLeave, leaves: myLeaves, status }); }
@@ -1831,11 +1827,7 @@ scheduleData.forEach((d) => {
       area: '',
       reason: lv.reason || '-',
       note: lv.note ? `${lv.note}` : timeNote,
-      status: (lv.status === 'pending') ? '待職代審查中' :
-              (lv.status === 'deputy_signed') ? '組長審查中' :
-              (lv.status === 'approved') ? '已核准' :
-              (lv.status === 'rejected') ? '退回/未通過' :
-              (lv.status === 'recalled' || lv.status === 'withdrawn') ? '已撤回' : (lv.status || '-'),
+      status: getStatusLabel(lv.status),
       rawTag: null,
       rawLeave: lv
     });
@@ -2017,6 +2009,18 @@ const overlaps = (s1, e1, s2, e2) => {
   } catch { return false; }
 };
 
+const getStatusLabel = (status, withHint = false) => {
+  switch (status) {
+    case 'pending': return '待職代審查中';
+    case 'deputy_signed': return '組長審查中';
+    case 'approved': return '已核准';
+    case 'rejected': return withHint ? '退回/未通過（可修改後重送）' : '退回/未通過';
+    case 'recalled': return withHint ? '已撤回（請修改後重送）' : '已撤回';
+    case 'withdrawn': return '已撤回';
+    default: return status || '-';
+  }
+};
+
 const hasDeputyConflictLite = (deputyId, start, end, selfId) => {
   if (!deputyId || !start || !end) return false;
   return (leaves || []).some(l => {
@@ -2070,8 +2074,8 @@ const handleEditResubmit = async () => {
       // 重新送審：依假別決定是否需要職代
       status: isOvertimeReq ? 'deputy_signed' : 'pending',
       deputySignedAt: isOvertimeReq ? new Date() : null,
-      deputySignedBy: isOvertimeReq ? 'SYSTEM' : null,
-      deputySignedByName: isOvertimeReq ? 'SYSTEM' : null,
+      deputySignedBy: isOvertimeReq ? 'EXEMPT' : null,
+      deputySignedByName: isOvertimeReq ? '加班免簽' : null,
       approverId: null,
       approvalDate: null,
       resubmittedAt: new Date()
@@ -2309,7 +2313,7 @@ const eD = (l.end||'').split('T')[0]||'';
 const eT = (l.end||'').split('T')[1]||'';
 const dateText = sD && eD && sD!==eD ? `${sD}~${eD}` : (sD || eD || '-');
 const timeText = sT && eT ? `${sT}~${eT}` : (sT || eT || '整天');
-const statusText = l.status === 'pending' ? '待職代審查中' : l.status === 'deputy_signed' ? '組長審查中' : l.status === 'rejected' ? '退回/未通過（可修改後重送）' : l.status === 'approved' ? '已核准' : l.status === 'recalled' ? '已撤回（請修改後重送）' : l.status;
+const statusText = getStatusLabel(l.status, true);
 const badge = l.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : l.status === 'deputy_signed' ? 'bg-blue-100 text-blue-700' : l.status === 'rejected' ? 'bg-red-100 text-red-700' : l.status === 'approved' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-700';
 return (
 <tr key={l.id} className="border-b border-gray-100 last:border-0 hover:bg-slate-50 transition-colors">
@@ -2533,23 +2537,14 @@ useEffect(() => {
   const cnt = (multiDates || []).filter(x => multiSelected && multiSelected[x.date]).length;
   if (!isNaN(cnt)) setHours(cnt * 8);
 }, [inputMode, manualRangeType, multiDates, multiSelected]);
-// 職代防呆：職代於同時段已安排出差/請假則禁止選擇
+// 職代防呆：職代於同時段已安排出差/請假則禁止選擇（同時檢查假單與行事曆）
   const hasDeputyConflict = (deputyId, start, end) => {
     if(!deputyId || !start || !end) return false;
+    if(hasDeputyConflictLite(deputyId, start, end)) return true;
     const s0 = new Date(start);
     const e0 = new Date(end);
-    const overlaps = (s1,e1)=> (s0 <= e1 && e0 >= s1);
-    // leaves：比對職代本人是否已有請假/出差（排除退回/撤簽）
-    const leaveHit = (leaves||[]).some(l=>{
-      if(!l || !l.start || !l.end) return false;
-      if(l.status==='rejected' || l.status==='withdrawn') return false;
-      const rid = l.requesterId || l.requesterDocId || l.requesterUid || '';
-      if(String(rid) !== String(deputyId)) return false;
-      return overlaps(new Date(l.start), new Date(l.end));
-    });
-    if(leaveHit) return true;
-    // calendar_events：比對職代行程（若你的 event 有 personId）
-    const calHit = (events||[]).some(ev=>{
+    // calendar_events：比對職代行程（若 event 有 personId）
+    return (events||[]).some(ev=>{
       if(!ev) return false;
       const pid = ev.personId || ev.person || ev.personUid || ev.personDocId || '';
       if(String(pid) !== String(deputyId)) return false;
@@ -2558,9 +2553,8 @@ useEffect(() => {
       if(!es) return false;
       const s1 = new Date(es);
       const e1 = ee ? new Date(ee) : s1;
-      return overlaps(s1,e1);
+      return (s0 <= e1 && e0 >= s1);
     });
-    return calHit;
   };
 
 
@@ -2599,7 +2593,7 @@ const getAnnualLeaveBalanceHours = (year) => {
       if (!l) return;
       const isMe = (l.requesterId === user.uid || l.requesterId === user.docId || l.requesterDocId === user.docId);
       if (!isMe) return;
-      if (l.status !== 'approved') return;
+      if (!['approved', 'pending', 'deputy_signed'].includes(l.status)) return;
       const y = String(l.start || '').slice(0,4);
       if (String(year) !== y) return;
       if (String(l.type||'').includes('特休')) used += Number(l.hours || 0) || 0;
@@ -2649,7 +2643,7 @@ const handleTaskSubmit = async (taskData, taskId) => {
       requesterName: user.name,
       status: skipDeputy ? 'deputy_signed' : 'pending',
       deputySignedAt: skipDeputy ? now : null,
-      deputySignedBy: skipDeputy ? 'SYSTEM' : null,
+      deputySignedBy: skipDeputy ? 'EXEMPT' : null,
       timestamp: now,
       submittedAt: now,
       sourceGroupId: taskId || null,
@@ -2723,7 +2717,7 @@ const isOvertimeReq = isOvertime(form.type);
 if(!form.type){ alert('請先選擇假別'); setTypeError(true); return; }
 if(!isOvertimeReq && !form.deputyId){ alert('請先選擇職務代理人'); return; }
 const deputyName = isOvertimeReq ? '-' : (getUserNameByKey(users, form.deputyId, '') || '');
-const payload = { ...form, deputyId: isOvertimeReq ? '' : (form.deputyId||''), requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, start: finalStart, end: finalEnd, hours: finalHours, status: isOvertimeReq ? 'deputy_signed' : 'pending', deputySignedAt: isOvertimeReq ? new Date() : null, deputySignedBy: isOvertimeReq ? 'SYSTEM' : null, timestamp: new Date(), sourceGroupId: submittingTaskId || null, sourceType: submittingTaskId ? 'calendar_event' : '', submittedAt: new Date() };
+const payload = { ...form, deputyId: isOvertimeReq ? '' : (form.deputyId||''), requesterId: user.docId || user.uid, requesterUid: user.uid, requesterDocId: user.docId || null, requesterEmail: (user.email||'').toLowerCase(), requesterName: user.name, start: finalStart, end: finalEnd, hours: finalHours, status: isOvertimeReq ? 'deputy_signed' : 'pending', deputySignedAt: isOvertimeReq ? new Date() : null, deputySignedBy: isOvertimeReq ? 'EXEMPT' : null, timestamp: new Date(), sourceGroupId: submittingTaskId || null, sourceType: submittingTaskId ? 'calendar_event' : '', submittedAt: new Date() };
 setConfirmData({ type: payload.type, start: payload.start, end: payload.end, hours: payload.hours, deputyName, reason: payload.reason || '' });
 setPendingSubmit(payload);
 setConfirmOpen(true);
@@ -3235,19 +3229,28 @@ const handleLeaderBulkApprove = async () => {
 
   setProcessingId('bulk_leader');
   try {
-    for (const id of selectedLeaderIds) {
-      const leave = pendingLeader.find(l => l.id === id);
-      if (!leave) continue;
+    const approvedAt = new Date();
+    const approvedByName = currentUser.name || currentUser.displayName || '';
+    const leavesToApprove = selectedLeaderIds
+      .map(id => pendingLeader.find(l => l.id === id))
+      .filter(Boolean);
 
-      const approvedAt = new Date();
-      await crud.updateLeave(leave.id, {
+    // ── 用 writeBatch 原子性寫入所有核准，避免中途失敗造成部分核准 ──
+    const batch = writeBatch(db);
+    for (const leave of leavesToApprove) {
+      const ref = doc(db, 'artifacts', APP_ID, 'public', 'data', 'leaves', leave.id);
+      batch.update(ref, {
         status: 'approved',
         approverId: currentUser.uid,
         approvedAt,
-        approvedByName: currentUser.name || currentUser.displayName || ''
+        approvedByName,
+        approvalDate: new Date()
       });
+    }
+    await batch.commit();
 
-      // Mail notify: approved -> requester
+    // ── 所有寫入成功後再逐筆發送通知信 ──
+    for (const leave of leavesToApprove) {
       try {
         const requesterEmail = (leave.requesterEmail || '').toLowerCase();
         if (requesterEmail) {
@@ -3265,13 +3268,14 @@ const handleLeaderBulkApprove = async () => {
 時間序：
 1. 送出申請時間：${fmtDT(leave.submittedAt||leave.timestamp)}
 2. 職代人員：${leave.deputySignedByName || '—'}｜同意時間：${fmtDT(leave.deputySignedAt)}
-3. 組長：${(currentUser.name||'—')}｜同意時間：${fmtDT(approvedAt)}
+3. 組長：${approvedByName||'—'}｜同意時間：${fmtDT(approvedAt)}
 
 （系統自動通知）`
           });
         }
       } catch (mailErr) { console.warn("mail notify (approved bulk) failed:", mailErr); }
     }
+
     setSelectedLeaderIds([]);
     alert("批量核准完成！");
   } catch (e) {
@@ -3282,7 +3286,16 @@ const handleLeaderBulkApprove = async () => {
   }
 };
 
-const handleDeputyAgree = async (leave) => { if (processingId) return; setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'deputy_signed', deputySignedAt: new Date(), deputySignedByName: currentUser.name || currentUser.displayName || '' });
+const handleDeputyAgree = async (leave) => {
+  if (processingId) return;
+  const myKey = (currentUser.docId || currentUser.uid || '').toLowerCase();
+  const myEmail = (currentUser.email || '').toLowerCase();
+  const did = String(leave.deputyId || '').toLowerCase();
+  if (did && myKey && did !== myKey && did !== myEmail) {
+    alert('您不是此假單的職務代理人，無法執行此操作。');
+    return;
+  }
+  setProcessingId(leave.id); try { await crud.updateLeave(leave.id, { status: 'deputy_signed', deputySignedAt: new Date(), deputySignedByName: currentUser.name || currentUser.displayName || '' });
 // 職代審核通過：不寄信（全部審核完才通知申請者）
 
  } catch(e) { alert("操作失敗"); } finally { setProcessingId(null); } };
@@ -3604,10 +3617,10 @@ if (l.type === '補休') totalCompensatoryUsed += hours;
 if (l.type.includes('婚假')) usedMarriage += hours;
 if (l.type.includes('喪假')) usedBereavement += hours;
 if (l.type.includes('產假') || l.type.includes('陪產假')) usedMaternity += hours;
-if (l.type.includes('家庭照顧假')) {
+if (l.type === '家庭照顧假') {
 usedFamilyCare += hours;
-// 若未於上方計入事假，則在此併入事假額度計算 (家庭照顧假依法併入事假)
-if (!l.type.includes('事假')) usedPersonal += hours;}
+// 家庭照顧假依法併入事假額度計算
+usedPersonal += hours;}
 // 公務出差
 if (l.type === '出差' || l.type === '公出' || l.type === '公假') usedOfficial += hours;
 });
