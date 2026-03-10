@@ -51,6 +51,7 @@ appId: "1:1082378001168:web:fc12acdeed9ebece762395",
 measurementId: "G-48TSVTHBDM"
 };
 const APP_ID = 'kpptjawork';
+const DEFAULT_SHARED_GCAL_ID = '28f633aa9911ef3a9295bab4a5a7ff2339495b5777bedd644468fa0f0fe16f80@group.calendar.google.com';
 // --- Apps Script Mail Notifier ---
 const MAIL_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwBq-ilvSBOihhwVqmV86NQ2wpQjS0dcSsQ6a_COxSzGUJmVimj_SPbY24LV_Ry7j2BdQ/exec";
 const MAIL_SECRET_KEY = "kpptja_mail_9Xf3aL7qZt2Vn8Rm4YwQp6Hd1B";
@@ -1648,12 +1649,97 @@ const getGoogleCalendarToken = async () => {
   throw new Error(lastErr?.message || 'Google 授權失敗，請稍後再試。');
 };
 
+const mapAreaClassToGoogleColorId = (areaClass) => {
+  const txt = String(areaClass || '').toLowerCase();
+  if (!txt) return '';
+  if (txt.includes('red')) return '11';
+  if (txt.includes('orange')) return '6';
+  if (txt.includes('yellow')) return '5';
+  if (txt.includes('green')) return '10';
+  if (txt.includes('blue')) return '7';
+  if (txt.includes('purple')) return '3';
+  if (txt.includes('pink')) return '4';
+  if (txt.includes('gray')) return '8';
+  return '';
+};
+
+const hexToGoogleColorId = (hex) => {
+  const s = String(hex || '').trim();
+  const m = s.match(/^#?([a-fA-F0-9]{6})$/);
+  if (!m) return '';
+  const n = m[1];
+  const r = parseInt(n.slice(0, 2), 16) / 255;
+  const g = parseInt(n.slice(2, 4), 16) / 255;
+  const b = parseInt(n.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  const sat = max === 0 ? 0 : d / max;
+  if (sat < 0.12) return '8';
+  if (h < 15 || h >= 345) return '11';
+  if (h < 45) return '6';
+  if (h < 70) return '5';
+  if (h < 160) return '10';
+  if (h < 210) return '7';
+  if (h < 250) return '9';
+  if (h < 300) return '3';
+  return '4';
+};
+
+const findUserForColor = (personLike) => {
+  const personId = String(personLike?.userId || '').trim();
+  const personName = String(personLike?.userName || '').trim();
+  return (users || []).find(x => {
+    if (!x) return false;
+    const uid = String(x.uid || '').trim();
+    const docId = String(x.docId || '').trim();
+    const name = String(x.name || '').trim();
+    if (personId && (uid === personId || docId === personId)) return true;
+    if (personName && name === personName) return true;
+    return false;
+  }) || null;
+};
+
+const pickUserGoogleColorId = (u) => {
+  if (!u) return '';
+  const byHex = hexToGoogleColorId(u?.borderColor);
+  if (byHex) return byHex;
+  return mapAreaClassToGoogleColorId(u?.color);
+};
+
+const pickGoogleColorIdForGroup = (group, areaList) => {
+  const people = Array.isArray(group?.people) ? group.people : [];
+  for (const p of people) {
+    const u = findUserForColor(p);
+    const byUser = pickUserGoogleColorId(u);
+    if (byUser) return byUser;
+  }
+  const firstArea = (areaList || [])[0];
+  const byArea = mapAreaClassToGoogleColorId(settings?.areaColors?.[firstArea]);
+  if (byArea) return byArea;
+  return '9';
+};
+
+const pickGoogleColorIdForLeave = (leave) => {
+  const u = findUserForColor({ userName: leave?.requesterName });
+  const byUser = pickUserGoogleColorId(u);
+  if (byUser) return byUser;
+  return '6';
+};
+
 const toGoogleDateTime = (isoLike, fallbackTime = '08:00') => {
   const txt = String(isoLike || '').trim();
   if (!txt) return '';
   if (!txt.includes('T')) return `${txt}T${fallbackTime}:00`;
   const [d, tRaw] = txt.split('T');
-  const t = String(tRaw || '').slice(0,5);
+  const t = String(tRaw || '').slice(0, 5);
   const hhmm = /^\d{2}:\d{2}$/.test(t) ? t : fallbackTime;
   return `${d}T${hhmm}:00`;
 };
@@ -1672,8 +1758,9 @@ const toGoogleCalendarPayload = (group) => {
 
   const areaList = Array.isArray(tag.area) ? tag.area.filter(Boolean) : (tag.area ? [tag.area] : []);
   const peopleNames = [...new Set((group.people || []).map(p => p?.userName).filter(Boolean))];
-  const summary = `[KKPT排班] ${String(tag.item || '排班')}`;
+  const summary = `${String(tag.item || '排班')}｜${peopleNames.length ? peopleNames.join('、') : '待派員'}`;
   const note = String(tag.note || '').trim();
+  const colorId = pickGoogleColorIdForGroup(group, areaList);
 
   const lines = [
     '來源：KKPT職再差勤系統',
@@ -1690,6 +1777,7 @@ const toGoogleCalendarPayload = (group) => {
   return {
     summary,
     description: lines.join('\n'),
+    colorId,
     location: areaList.length ? areaList.join('、') : undefined,
     start: { dateTime: `${dateStr}T${startTime}:00`, timeZone: 'Asia/Taipei' },
     end: { dateTime: `${dateStr}T${endTime}:00`, timeZone: 'Asia/Taipei' },
@@ -1722,6 +1810,7 @@ const toGoogleLeavePayload = (leave) => {
   const statusMap = { pending: '待職代審查', deputy_signed: '待組長核准', approved: '已核准' };
   const statusText = statusMap[status] || status;
   const hoursText = Number(leave.hours || 0);
+  const colorId = pickGoogleColorIdForLeave(leave);
 
   const lines = [
     '來源：KKPT職再差勤系統',
@@ -1735,8 +1824,9 @@ const toGoogleLeavePayload = (leave) => {
   ];
 
   return {
-    summary: `[KKPT事假] ${requesterName}`,
+    summary: `[KKPT事假] ${requesterName} ${leaveType}`,
     description: lines.join('\n'),
+    colorId,
     start: { dateTime: toGoogleDateTime(startText, '08:00'), timeZone: 'Asia/Taipei' },
     end: { dateTime: toGoogleDateTime(endText, '17:00'), timeZone: 'Asia/Taipei' },
     extendedProperties: {
@@ -5933,6 +6023,16 @@ const handleGoogleLogin = async () => { if (!auth) { alert("Firebase 尚未連�
 return (<div className="min-h-screen bg-slate-100 flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm p-8 rounded-xl shadow-lg text-center"><div className="w-16 h-16 bg-blue-600 rounded-xl mx-auto mb-4 flex items-center justify-center text-white"><Calendar size={32}/></div><h1 className="text-2xl font-bold text-gray-800 mb-1">差勤排班系統</h1><p className="text-gray-400 text-sm mb-8">高屏澎東職務再設計專案單位</p><div className="space-y-4"><button onClick={handleGoogleLogin} disabled={isLoggingIn} className="w-full py-3.5 rounded-lg font-bold bg-white border-2 border-gray-200 text-gray-700 transition-all flex items-center justify-center gap-3 hover:bg-gray-50 shadow-sm disabled:opacity-50">{isLoggingIn ? (<Loader2 className="animate-spin text-blue-600" size={20}/>) : (<img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5"/>)}<span>{isLoggingIn ? '正在驗證帳號...' : '使用 Google 帳號登入'}</span></button></div></div></div>);}
 const root = createRoot(document.getElementById('root'));
 root.render(<App />);</script></body></html>
+
+
+
+
+
+
+
+
+
+
 
 
 
